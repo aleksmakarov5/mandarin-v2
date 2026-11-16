@@ -1,0 +1,591 @@
+// ====================================================
+// 1. ПОДКЛЮЧЕНИЕ BOOTSTRAP И ШРИФТОВ
+// ====================================================
+@import url('https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500;700&display=swap');
+@import "bootstrap/scss/bootstrap";
+
+// ====================================================
+// 2. ФИРМЕННАЯ ПАЛИТРА И ПЕРЕМЕННЫЕ
+// ====================================================
+$font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+$headings-font-family: 'Ubuntu', $font-family-base;
+
+$mandarin-orange: #f37021;
+$mandarin-orange-hover: #d85a10;
+$mandarin-gray-bg: rgba(248, 249, 250, 0.85);
+$mandarin-gray-border: rgba(206, 212, 218, 0.7);
+$mandarin-gray-text: #495057;
+
+$sidebar-bg: #181b20;
+$sidebar-hover: #262c33;
+$body-bg-color: #e9ecef;
+$border-color-custom: rgba(222, 226, 230, 0.7);
+
+// ====================================================
+// 3. БАЗОВЫЕ СТИЛИ СТРАНИЦЫ
+// ====================================================
+body {
+    font-family: $font-family-base;
+    background: linear-gradient(135deg, #eef1f5 0%, #e2e7ec 100%);
+    color: #333333;
+    font-size: 0.9rem;
+    overflow-x: hidden;
+    min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-family: $headings-font-family;
+}
+
+a {
+    color: $mandarin-orange;
+    text-decoration: none;
+
+    &:hover {
+        color: $mandarin-orange-hover;
+    }
+}
+
+// ====================================================
+// 4. КАРТОЧКИ (СТЕКЛЯННЫЙ ЭФФЕКТ И ТЕНИ)
+// ====================================================
+.card {
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.03);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+
+    &:hover {
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.07), 0 2px 5px rgba(0, 0, 0, 0.04);
+    }
+
+    .card-header {
+        background: rgba(248, 249, 250, 0.85);
+        border-bottom: 1px solid rgba(222, 226, 230, 0.6);
+        font-weight: 600;
+        font-size: 0.9rem;
+        padding: 0.75rem 1.1rem;
+    }
+}
+
+// ====================================================
+// 5. КНОПКИ (ОБЪЕМ, ГРАДИЕНТЫ И СВЕЧЕНИЕ)
+// ====================================================
+.btn {
+    font-size: 0.85rem;
+    font-weight: 500;
+    border-radius: 4px;
+    padding: 0.4rem 0.85rem;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+
+    &:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+    }
+
+    &:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    }
+}
+
+// Главная оранжевая кнопка
+.btn-primary {
+    background-color: $mandarin-orange !important;
+    border-color: darken($mandarin-orange, 4%) !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 6px rgba(243, 112, 33, 0.35);
+
+    &:hover,
+    &:focus,
+    &:active {
+        background-color: $mandarin-orange-hover !important;
+        border-color: darken($mandarin-orange-hover, 5%) !important;
+        box-shadow: 0 4px 12px rgba(243, 112, 33, 0.45);
+        color: #ffffff !important;
+    }
+}
+
+// Серая кнопка
+.btn-secondary,
+.btn-default {
+    background-color: #606770 !important;
+    border-color: #555b63 !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 5px rgba(96, 103, 112, 0.25);
+
+    &:hover,
+    &:focus,
+    &:active {
+        background-color: #4b525a !important;
+        border-color: #434950 !important;
+        box-shadow: 0 4px 10px rgba(96, 103, 112, 0.35);
+        color: #ffffff !important;
+    }
+}
+
+// Светло-серая кнопка
+.btn-light,
+.btn-gray {
+    background-color: rgba(255, 255, 255, 0.85) !important;
+    border-color: rgba(206, 212, 218, 0.8) !important;
+    color: $mandarin-gray-text !important;
+    backdrop-filter: blur(4px);
+
+    &:hover,
+    &:focus,
+    &:active {
+        background-color: #ffffff !important;
+        border-color: #adb5bd !important;
+        color: #212529 !important;
+        box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
+    }
+}
+
+// Контурная оранжевая кнопка
+.btn-outline-primary {
+    color: $mandarin-orange !important;
+    border-color: $mandarin-orange !important;
+    background-color: transparent !important;
+
+    &:hover,
+    &:focus,
+    &:active {
+        background-color: $mandarin-orange !important;
+        border-color: $mandarin-orange !important;
+        color: #ffffff !important;
+    }
+}
+
+// Контурная серая кнопка
+.btn-outline-secondary {
+    color: #495057 !important;
+    border-color: #ced4da !important;
+    background-color: #fff !important;
+
+    &:hover,
+    &:focus,
+    &:active {
+        background-color: #e9ecef !important;
+        border-color: #adb5bd !important;
+        color: #212529 !important;
+    }
+}
+
+// ====================================================
+// 6. НАВИГАЦИОННЫЕ ВКЛАДКИ (NAV-PILLS)
+// ====================================================
+.nav-pills {
+    background: rgba(255, 255, 255, 0.8) !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    border-radius: 6px;
+    padding: 0.35rem;
+
+    .nav-link {
+        color: #495057;
+        font-size: 0.85rem;
+        font-weight: 500;
+        border-radius: 4px;
+        padding: 0.45rem 1rem;
+        transition: all 0.2s ease;
+
+        i {
+            color: #6c757d;
+        }
+
+        &:hover {
+            color: $mandarin-orange;
+            background-color: rgba(243, 112, 33, 0.08);
+
+            i {
+                color: $mandarin-orange;
+            }
+        }
+
+        &.active {
+            background: linear-gradient(135deg, #f37021 0%, #e65100 100%) !important;
+            color: #ffffff !important;
+            box-shadow: 0 3px 10px rgba(243, 112, 33, 0.4);
+
+            i {
+                color: #ffffff !important;
+            }
+        }
+    }
+}
+
+// ====================================================
+// 7. ТАБЛИЦЫ
+// ====================================================
+.table {
+    font-size: 0.85rem;
+    margin-bottom: 0;
+
+    thead th {
+        background-color: rgba(241, 243, 245, 0.9);
+        color: #495057;
+        font-weight: 600;
+        border-bottom: 1px solid rgba(206, 212, 218, 0.7);
+        padding: 0.65rem 0.85rem;
+        white-space: nowrap;
+    }
+
+    tbody td {
+        padding: 0.65rem 0.85rem;
+        vertical-align: middle;
+    }
+}
+
+// ====================================================
+// 8. САЙДБАР С ОРАНЖЕВОЙ ПОДСВЕТКОЙ
+// ====================================================
+.app-sidebar {
+    width: 240px;
+    background: #181b20;
+    color: #ced4da;
+    min-height: 100vh;
+    box-shadow: 3px 0 15px rgba(0, 0, 0, 0.12);
+    transition: width 0.25s ease;
+    overflow-x: hidden;
+    z-index: 1000;
+
+    &.collapsed {
+        width: 64px;
+
+        .brand-text,
+        .nav-text,
+        .nav-section-title,
+        .user-info,
+        .badge {
+            display: none !important;
+        }
+
+        .sidebar-brand {
+            justify-content: center;
+            padding: 1rem 0;
+        }
+
+        .nav-link {
+            justify-content: center !important;
+            padding: 0.65rem 0 !important;
+            margin: 0.2rem 0.4rem;
+
+            i {
+                margin-right: 0 !important;
+                font-size: 1.25rem;
+            }
+        }
+
+        .sidebar-footer {
+            justify-content: center;
+            padding: 0.75rem 0;
+        }
+    }
+
+    .sidebar-brand {
+        height: 54px;
+        display: flex;
+        align-items: center;
+        padding: 0 1.25rem;
+        color: #fff;
+        font-weight: 700;
+        font-size: 1.05rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        text-decoration: none;
+        background: rgba(0, 0, 0, 0.15);
+    }
+
+    .nav-section-title {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        color: #64748b;
+        padding: 0.75rem 1.25rem 0.25rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+    }
+
+    .nav-link {
+        color: #cbd5e1;
+        padding: 0.55rem 0.9rem;
+        margin: 0.15rem 0.6rem;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        text-decoration: none;
+        white-space: nowrap;
+        font-weight: 500;
+        font-size: 0.88rem;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+        i {
+            font-size: 1.1rem;
+            margin-right: 0.75rem;
+            width: 20px;
+            text-align: center;
+            color: #94a3b8;
+            transition: color 0.2s ease;
+        }
+
+        &:hover {
+            color: #ffffff;
+            background-color: rgba(243, 112, 33, 0.15);
+
+            i {
+                color: $mandarin-orange;
+            }
+        }
+
+        // АКТИВНЫЙ ПУНКТ (Яркая оранжевая подсветка со свечением)
+        &.active {
+            color: #ffffff !important;
+            background: linear-gradient(135deg, #f37021 0%, #e65100 100%) !important;
+            font-weight: 600;
+            box-shadow: 0 3px 10px rgba(243, 112, 33, 0.45);
+
+            i {
+                color: #ffffff !important;
+            }
+
+            .badge.bg-warning {
+                background-color: #ffffff !important;
+                color: #e65100 !important;
+                font-weight: 700;
+            }
+
+            .badge.bg-success {
+                background-color: rgba(255, 255, 255, 0.25) !important;
+                color: #ffffff !important;
+                border: 1px solid rgba(255, 255, 255, 0.4);
+            }
+        }
+    }
+
+    .sidebar-footer {
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        padding: 0.65rem 1rem;
+        background: rgba(0, 0, 0, 0.25);
+    }
+}
+
+// ====================================================
+// 9. ВЕРХНИЙ НАВБАР (СТЕКЛЯННЫЙ СТИЛЬ)
+// ====================================================
+.top-header {
+    height: 54px;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(222, 226, 230, 0.6);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.03);
+    position: sticky;
+    top: 0;
+    z-index: 990;
+}
+
+// ====================================================
+// 10. АДАПТИВНОСТЬ ПОД DESKTOP / TABLET / MOBILE
+// ====================================================
+.sidebar-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 1040;
+}
+
+.mobile-bottom-nav {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(222, 226, 230, 0.8);
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
+    z-index: 1030;
+    padding: 0 0.5rem;
+
+    .bottom-nav-item {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #6c757d;
+        text-decoration: none;
+        font-size: 0.72rem;
+        padding: 0.35rem 0;
+        border-radius: 6px;
+        transition: all 0.2s ease;
+
+        i {
+            font-size: 1.25rem;
+            margin-bottom: 2px;
+            transition: transform 0.2s ease;
+        }
+
+        &.active {
+            color: $mandarin-orange !important;
+            font-weight: 700;
+
+            i {
+                transform: translateY(-2px);
+                color: $mandarin-orange !important;
+            }
+        }
+    }
+}
+
+// Desktop (>= 1200px)
+@media (min-width: 1200px) {
+    .app-sidebar {
+        position: relative;
+    }
+}
+
+// Tablet (768px - 1199px)
+@media (min-width: 768px) and (max-width: 1199px) {
+    .app-sidebar {
+        width: 64px !important;
+
+        .brand-text,
+        .nav-text,
+        .nav-section-title,
+        .user-info,
+        .badge {
+            display: none !important;
+        }
+
+        .sidebar-brand {
+            justify-content: center;
+            padding: 1rem 0;
+        }
+
+        .nav-link {
+            justify-content: center !important;
+            padding: 0.65rem 0 !important;
+
+            i {
+                margin-right: 0 !important;
+                font-size: 1.25rem;
+            }
+        }
+
+        .sidebar-footer {
+            justify-content: center;
+            padding: 0.75rem 0;
+        }
+    }
+}
+
+// Mobile (< 768px)
+@media (max-width: 767.98px) {
+    body {
+        padding-bottom: 60px;
+    }
+
+    .app-sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 260px !important;
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 1050;
+
+        &.mobile-open {
+            transform: translateX(0);
+        }
+    }
+
+    .top-header {
+        padding: 0 0.75rem;
+
+        .header-search {
+            display: none;
+        }
+    }
+
+    .mobile-bottom-nav {
+        display: flex;
+    }
+
+    .btn {
+        padding: 0.45rem 0.85rem;
+        min-height: 38px;
+    }
+
+    .responsive-table-card {
+        .desktop-table-view {
+            display: none;
+        }
+
+        .mobile-cards-view {
+            display: block;
+        }
+    }
+}
+
+@media (min-width: 768px) {
+    .responsive-table-card {
+        .desktop-table-view {
+            display: block;
+        }
+
+        .mobile-cards-view {
+            display: none;
+        }
+    }
+}
+
+// ----------------------------------------------------
+// ФИКСИРОВАННЫЕ НОТИФИКАЦИОННЫЕ КРУЖКИ (СЧЕТЧИКИ)
+// ----------------------------------------------------
+.badge-count-yellow {
+    background-color: #ffb300 !important;
+    color: #1a1a1a !important;
+    font-weight: 700 !important;
+    border: none !important;
+}
+
+.badge-count-green {
+    background-color: #2e7d32 !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    border: none !important;
+}
+
+// Позиционирование бейджей на кнопках нижней панели
+.mobile-bottom-nav .bottom-nav-item {
+    position: relative;
+
+    .mobile-badge-dot {
+        position: absolute;
+        top: 4px;
+        right: 18%;
+        font-size: 0.65rem;
+        line-height: 1;
+        padding: 2px 5px;
+        border-radius: 10px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+}
