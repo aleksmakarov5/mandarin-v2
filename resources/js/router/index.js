@@ -13,9 +13,9 @@ const routes = [
         component: () => import('../layouts/MainLayout.vue'),
         meta: { requiresAuth: true },
         children: [
-            { path: '', redirect: '/requests' },
-            { path: 'requests', name: 'requests', component: () => import('../views/Dashboard.vue') },
-            { path: 'applications', name: 'applications', component: () => import('../views/Dashboard.vue') },
+            { path: '', redirect: '/dashboard' },
+            // { path: 'requests', name: 'requests', component: () => import('../views/Dashboard.vue') },
+            { path: 'dashboard', name: 'dashboard', component: () => import('../views/Dashboard.vue') },
             { path: 'acceptance', name: 'acceptance', component: () => import('../views/Dashboard.vue') },
             { path: 'archive', name: 'archive', component: () => import('../views/Dashboard.vue') },
             { path: 'trash', name: 'trash', component: () => import('../views/Dashboard.vue') },
@@ -34,6 +34,32 @@ const routes = [
                 name: 'admin',
                 component: () => import('../views/admin/AdminDashboard.vue'),
                 meta: { requiresAdmin: true },
+            },
+            // РЕЕСТРЫ ДЕЛ
+            {
+                path: 'requests',
+                name: 'requests',
+                component: () => import('../views/applications/ApplicationsList.vue'),
+            },
+            {
+                path: 'applications',
+                name: 'applications',
+                component: () => import('../views/applications/ApplicationsList.vue'),
+            },
+            {
+                path: 'acceptance',
+                name: 'acceptance',
+                component: () => import('../views/applications/ApplicationsList.vue'),
+            },
+            {
+                path: 'archive',
+                name: 'archive',
+                component: () => import('../views/applications/ApplicationsList.vue'),
+            },
+            {
+                path: 'trash',
+                name: 'trash',
+                component: () => import('../views/applications/ApplicationsList.vue'),
             },
         ],
     },

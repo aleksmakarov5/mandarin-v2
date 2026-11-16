@@ -618,3 +618,57 @@ a {
         }
     }
 }
+
+.header-add-btn {
+    background-color: #3f3f46;
+    border-color: #27272a;
+    height: 32px;
+    font-size: 0.78rem;
+    letter-spacing: 0.3px;
+}
+
+.header-add-btn:hover {
+    background-color: #18181b;
+}
+
+/* Контейнер страницы */
+.applications-page {
+    width: 100%;
+    max-width: 100%;
+    padding: 0 4px;
+}
+
+/* Обертка таблицы строго по ширине рабочего окна */
+.table-container {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    border-radius: 4px;
+}
+
+/* Скроллер только внутри самой таблицы */
+.table-scroll-wrapper {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: thin;
+}
+
+/* Стилизация скроллбара, чтобы он был тонким и компактным */
+.table-scroll-wrapper::-webkit-scrollbar {
+    height: 6px;
+}
+
+.table-scroll-wrapper::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+
+.table-scroll-wrapper::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+.table-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}

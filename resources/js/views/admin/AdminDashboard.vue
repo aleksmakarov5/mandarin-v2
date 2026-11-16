@@ -127,7 +127,7 @@
 
                                 <td>
                                     <a :href="'mailto:' + u.email" class="text-decoration-none text-dark">{{ u.email
-                                    }}</a>
+                                        }}</a>
                                     <div class="small text-muted">{{ u.phone || '—' }}</div>
                                 </td>
                                 <td>
@@ -492,18 +492,43 @@
                     <table class="table table-hover align-middle mb-0">
                         <thead class="table-light">
                             <tr>
-                                <th style="width: 60px;">ID</th>
+                                <th style="width: 70px;">ID</th>
                                 <th>Статус</th>
-                                <th>Группа</th>
-                                <th>Цвет</th>
+                                <th>Цветовой код / Тема</th>
+                                <th>Группа / Роль</th>
+                                <th class="text-end" style="width: 110px;">Действия</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr v-for="st in statuses" :key="st.id">
-                                <td class="text-muted">#{{ st.id }}</td>
-                                <td><span :class="`badge bg-${st.color || 'secondary'}`">{{ st.name }}</span></td>
-                                <td>{{ st.group?.name || 'Общий статус' }}</td>
-                                <td><code>{{ st.color }}</code></td>
+                                <td class="text-muted fw-bold">#{{ st.id }}</td>
+                                <td>
+                                    <!-- Бейдж с индивидуальным цветом фона и текста -->
+                                    <span class="badge px-2 py-1 fw-semibold" :style="{
+                                        backgroundColor: st.bg_color || '#f1f5f9',
+                                        color: st.text_color || '#334155',
+                                        border: '1px solid ' + (st.text_color || '#334155') + '22'
+                                    }">
+                                        {{ st.name }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="text-muted small">
+                                        {{ st.group?.name || 'Общий статус' }}
+                                    </span>
+                                </td>
+                                <td class="text-end">
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-light border" title="Редактировать"
+                                            @click="statusModalRef?.open(st)">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger" title="Удалить"
+                                            @click="deleteStatus(st)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
                             </tr>
                         </tbody>
                     </table>
@@ -524,6 +549,7 @@
         <InsuranceCompanyModal ref="insuranceCompanyModalRef" @saved="fetchInsuranceCompanies" />
 
         <GroupModal ref="groupModalRef" @saved="fetchGroups" />
+        <StatusModal ref="statusModalRef" :groups="groups" @saved="fetchStatuses" />
     </div>
 </template>
 
@@ -538,6 +564,10 @@ import OurCompanyModal from './components/OurCompanyModal.vue';
 import CityModal from './components/CityModal.vue';
 import InsuranceCompanyModal from './components/InsuranceCompanyModal.vue';
 import GroupModal from './components/GroupModal.vue';
+import StatusModal from './components/StatusModal.vue';
+
+// Добавьте ссылку на модалку:
+const statusModalRef = ref(null);
 
 const authStore = useAuthStore();
 
@@ -602,6 +632,8 @@ const handleCreateNew = () => {
         insuranceCompanyModalRef.value?.open();
     } else if (currentTab.value === 'groups') {
         groupModalRef.value?.open();
+    } else if (currentTab.value === 'statuses') {
+        statusModalRef.value?.open(); // <-- ВОТ ЭТА СТРОКА
     }
 };
 
@@ -696,9 +728,11 @@ const fetchGroups = async () => {
 const fetchStatuses = async () => {
     try {
         const res = await axios.get('/api/admin/application-statuses');
+        // Поддерживаем res.data.data (если пагинация) или чистый массив res.data
         statuses.value = res.data.data || res.data || [];
     } catch (e) {
         console.error('Ошибка загрузки статусов:', e);
+        statuses.value = [];
     }
 };
 
@@ -710,6 +744,17 @@ const deleteUser = async (u) => {
             fetchUsers(pagination.value.current_page);
         } catch (err) {
             alert(err.response?.data?.message || 'Не удалось удалить пользователя.');
+        }
+    }
+};
+
+const deleteStatus = async (st) => {
+    if (confirm(`Удалить статус «${st.name}»?`)) {
+        try {
+            await axios.delete(`/api/admin/application-statuses/${st.id}`);
+            fetchStatuses();
+        } catch (err) {
+            alert(err.response?.data?.message || 'Не удалось удалить статус.');
         }
     }
 };

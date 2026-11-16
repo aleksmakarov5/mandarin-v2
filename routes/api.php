@@ -32,6 +32,11 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 */
 Route::middleware('auth:sanctum')->group(function () {
 
+    Route::middleware(['auth:sanctum'])->group(function () {
+        Route::get('/applications/filters', [\App\Http\Controllers\Api\ApplicationController::class, 'filterOptions']);
+        Route::get('/applications/counts', [\App\Http\Controllers\Api\ApplicationController::class, 'counts']);
+        Route::get('/applications', [\App\Http\Controllers\Api\ApplicationController::class, 'index']);
+    });
     // Текущий пользователь и выход
     Route::get('/auth/me', [AuthController::class, 'me']);
     // Маршрут обновления профиля (PUT)
