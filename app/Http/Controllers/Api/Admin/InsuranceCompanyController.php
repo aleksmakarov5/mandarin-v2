@@ -9,66 +9,60 @@ use Illuminate\Http\Request;
 
 class InsuranceCompanyController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $companies = InsuranceCompany::with(['ourCompany', 'legalEntity'])
-            ->withCount('applications')
-            ->orderBy('name')
-            ->get();
+        $query = InsuranceCompany::query();
 
-        return response()->json($companies);
+        if ($request->filled('search')) {
+            $s = trim($request->search);
+            $query->where('name', 'LIKE', "%{$s}%")
+                ->orWhere('curator', 'LIKE', "%{$s}%")
+                ->orWhere('email', 'LIKE', "%{$s}%")
+                ->orWhere('phone', 'LIKE', "%{$s}%");
+        }
+
+        $items = $query->orderBy('name')->get();
+        return response()->json($items);
     }
 
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'nullable|email',
-            'manager' => 'nullable|string|max:255',
+            'curator' => 'nullable|string|max:255',
             'phone' => 'nullable|string|max:50',
-            'address' => 'nullable|string',
-            'our_company_id' => 'nullable|exists:our_companies,id',
-            'legal_entity_id' => 'nullable|exists:legal_entities,id',
-            'theme' => 'nullable|string',
+            'email' => 'nullable|email|max:255',
+            'address' => 'nullable|string|max:500',
         ]);
 
-        $company = InsuranceCompany::create($validated);
+        $item = InsuranceCompany::create($validated);
+        return response()->json($item, 201);
+    }
 
-        return response()->json($company, 201);
+    public function show(int $id): JsonResponse
+    {
+        return response()->json(InsuranceCompany::findOrFail($id));
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $company = InsuranceCompany::findOrFail($id);
+        $item = InsuranceCompany::findOrFail($id);
 
         $validated = $request->validate([
-            'name' => 'sometimes|required|string|max:255',
-            'email' => 'nullable|email',
-            'manager' => 'nullable|string|max:255',
+            'name' => 'required|string|max:255',
+            'curator' => 'nullable|string|max:255',
             'phone' => 'nullable|string|max:50',
-            'address' => 'nullable|string',
-            'our_company_id' => 'nullable|exists:our_companies,id',
-            'legal_entity_id' => 'nullable|exists:legal_entities,id',
-            'theme' => 'nullable|string',
+            'email' => 'nullable|email|max:255',
+            'address' => 'nullable|string|max:500',
         ]);
 
-        $company->update($validated);
-
-        return response()->json($company);
+        $item->update($validated);
+        return response()->json($item);
     }
 
     public function destroy(int $id): JsonResponse
     {
-        $company = InsuranceCompany::withCount('applications')->findOrFail($id);
-
-        if ($company->applications_count > 0) {
-            return response()->json([
-                'message' => 'Невозможно удалить страховую компанию, к которой привязаны заявки'
-            ], 422);
-        }
-
-        $company->delete();
-
+        InsuranceCompany::findOrFail($id)->delete();
         return response()->json(['message' => 'Страховая компания удалена']);
     }
 }

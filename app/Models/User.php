@@ -9,18 +9,20 @@ use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
     protected $fillable = [
+        'last_name',
         'name',
+        'patronymic',
         'email',
         'phone',
         'user_group_id',
         'city_id',
+        'is_system_admin',
         'def_mrk_proc',
         'def_zap_proc',
         'password',
@@ -31,63 +33,127 @@ class User extends Authenticatable
         'remember_token',
     ];
 
-    protected function casts(): array
+    protected $casts = [
+        'is_system_admin' => 'boolean',
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
+    ];
+
+    protected $appends = [
+        'full_name',
+        'short_name',
+    ];
+
+    // Полное ФИО: "Иванов Иван Иванович"
+    public function getFullNameAttribute(): string
     {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-            'def_mrk_proc' => 'integer',
-            'def_zap_proc' => 'integer',
-        ];
+        return trim("{$this->last_name} {$this->name} {$this->patronymic}");
     }
 
+    // Фамилия и инициалы: "Иванов И. И."
+    public function getShortNameAttribute(): string
+    {
+        $initials = '';
+        if ($this->name) {
+            $initials .= mb_substr(trim($this->name), 0, 1) . '.';
+        }
+        if ($this->patronymic) {
+            $initials .= ' ' . mb_substr(trim($this->patronymic), 0, 1) . '.';
+        }
+        return trim("{$this->last_name} {$initials}");
+    }
+
+    /**
+     * Основная роль/группа пользователя
+     */
     public function group(): BelongsTo
     {
         return $this->belongsTo(UserGroup::class, 'user_group_id');
     }
 
+    /**
+     * Основной город пользователя
+     */
     public function city(): BelongsTo
     {
-        return $this->belongsTo(City::class);
+        return $this->belongsTo(City::class, 'city_id');
     }
 
+    /**
+     * Доступные города (многие-ко-многим)
+     */
     public function cities(): BelongsToMany
     {
-        return $this->belongsToMany(City::class, 'user_cities');
+        return $this->belongsToMany(City::class, 'city_user');
     }
 
-    public function roles(): BelongsToMany
+    /**
+     * Роли пользователя по филиалам
+     */
+    public function branchRoles(): HasMany
     {
-        return $this->belongsToMany(UserGroup::class, 'user_roles');
+        return $this->hasMany(OurCompanyUserRole::class);
     }
 
-    public function mrkApplications(): HasMany
+    /**
+     * Филиалы компании
+     */
+    public function branches(): BelongsToMany
     {
-        return $this->hasMany(Application::class, 'mrk_id');
+        return $this->belongsToMany(OurCompany::class, 'our_company_user_role')
+            ->withPivot('user_group_id', 'is_active')
+            ->withTimestamps();
     }
 
-    public function spmApplications(): HasMany
+    /**
+     * Проверка на системного администратора
+     */
+    public function isSystemAdmin(): bool
     {
-        return $this->hasMany(Application::class, 'spm_id');
+        return (bool) $this->is_system_admin || $this->group?->code === 'sys_admin';
     }
 
-    public function notifications(): HasMany
+    /**
+     * Проверка: является ли пользователь владельцем филиала
+     */
+    public function isBranchOwner(int $branchId): bool
     {
-        return $this->hasMany(Notify::class);
+        if ($this->isSystemAdmin()) {
+            return true;
+        }
+
+        return $this->hasRoleInBranch($branchId, 'owner');
     }
 
-    public function userFilter(): HasOne
+    /**
+     * Проверка роли в конкретном филиале
+     */
+    public function hasRoleInBranch(int $branchId, string $roleCode): bool
     {
-        return $this->hasOne(UserFilter::class);
+        if ($this->isSystemAdmin()) {
+            return true;
+        }
+
+        return $this->branchRoles()
+            ->where('our_company_id', $branchId)
+            ->where('is_active', true)
+            ->whereHas('role', fn($q) => $q->where('code', $roleCode))
+            ->exists();
     }
 
-    public function periodFilter(): HasOne
+    /**
+     * Получить ID доступных филиалов
+     */
+    public function getAvailableBranchIds(): array
     {
-        return $this->hasOne(PeriodFilter::class);
-    }
+        if ($this->isSystemAdmin()) {
+            return OurCompany::pluck('id')->toArray();
+        }
 
-    public function mrkFilter(): HasOne
-    {
-        return $this->hasOne(MrkFilter::class);
+        return $this->branchRoles()
+            ->where('is_active', true)
+            ->pluck('our_company_id')
+            ->unique()
+            ->toArray();
     }
 }

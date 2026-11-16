@@ -15,7 +15,9 @@ use App\Http\Controllers\Api\Admin\UserController;
 use App\Http\Controllers\Api\Admin\UserGroupController;
 use App\Http\Controllers\Api\Admin\InsuranceCompanyController;
 use App\Http\Controllers\Api\Admin\ApplicationStatusController;
-
+use App\Http\Controllers\Api\Admin\CityController;
+use App\Http\Controllers\Api\Admin\LegalEntityController;
+use App\Http\Controllers\Api\Admin\OurCompanyController;
 /*
 |--------------------------------------------------------------------------
 | Публичные маршруты
@@ -32,6 +34,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Текущий пользователь и выход
     Route::get('/auth/me', [AuthController::class, 'me']);
+    // Маршрут обновления профиля (PUT)
+    Route::put('/auth/profile', [AuthController::class, 'updateProfile']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
 
     // ==========================================
@@ -72,13 +76,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('applications/{id}/attachments', [AttachmentController::class, 'upload']);
     Route::delete('attachments/{id}', [AttachmentController::class, 'destroy']);
 
-    // ==========================================
-    // 6. ПАНЕЛЬ АДМИНИСТРИРОВАНИЯ (ADMIN)
-    // ==========================================
-    Route::prefix('admin')->group(function () {
+
+
+});
+
+// ==========================================
+// 6. ПАНЕЛЬ АДМИНИСТРИРОВАНИЯ (ADMIN)
+// ==========================================
+Route::middleware(['auth:sanctum', \App\Http\Middleware\EnsureIsSystemAdmin::class])
+    ->prefix('admin')
+    ->group(function () {
         Route::apiResource('users', UserController::class);
         Route::apiResource('user-groups', UserGroupController::class);
+        Route::apiResource('legal-entities', LegalEntityController::class);
+        Route::apiResource('our-companies', OurCompanyController::class);
+        Route::apiResource('cities', CityController::class);
         Route::apiResource('insurance-companies', InsuranceCompanyController::class);
         Route::apiResource('application-statuses', ApplicationStatusController::class);
     });
-});

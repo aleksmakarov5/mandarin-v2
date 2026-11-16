@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { useAuthStore } from '../stores/auth';
 
 const routes = [
     {
@@ -24,10 +25,15 @@ const routes = [
             { path: 'finance', name: 'finance', component: () => import('../views/Dashboard.vue') },
             { path: 'books', name: 'books', component: () => import('../views/Dashboard.vue') },
             {
+                path: 'profile',
+                name: 'profile',
+                component: () => import('../views/profile/Profile.vue'),
+            },
+            {
                 path: 'admin',
                 name: 'admin',
                 component: () => import('../views/admin/AdminDashboard.vue'),
-                meta: { roles: ['sys_admin', 'company_admin'] },
+                meta: { requiresAdmin: true },
             },
         ],
     },
@@ -40,6 +46,30 @@ const routes = [
 const router = createRouter({
     history: createWebHistory(),
     routes,
+});
+
+router.beforeEach((to, from, next) => {
+    const authStore = useAuthStore();
+    const token = localStorage.getItem('auth_token');
+
+    // 1. Если маршрут требует авторизации, а токена нет -> перенаправляем на логин
+    if (to.matched.some((record) => record.meta.requiresAuth) && !token) {
+        return next({ name: 'login' });
+    }
+
+    // 2. Если уже авторизован и пытается зайти на логин -> отправляем в систему
+    if (to.matched.some((record) => record.meta.guestOnly) && token) {
+        return next({ name: 'requests' });
+    }
+
+    // 3. Защита админки: доступна только системному администратору
+    if (to.matched.some((record) => record.meta.requiresAdmin)) {
+        if (!authStore.isAdmin) {
+            return next({ name: 'requests' });
+        }
+    }
+
+    next();
 });
 
 export default router;

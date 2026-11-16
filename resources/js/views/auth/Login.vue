@@ -42,7 +42,6 @@
 import { reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../../stores/auth';
-import MandarinLogo from '../../components/MandarinLogo.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -55,7 +54,8 @@ const form = reactive({
 const handleLogin = async () => {
     const success = await authStore.login(form);
     if (success) {
-        router.push({ name: 'dashboard' });
+        // Явный переход на маршрут /requests
+        await router.push('/requests');
     }
 };
 </script>
