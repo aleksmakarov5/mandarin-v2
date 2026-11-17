@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 // Контроллеры авторизации и основных модулей
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ApplicationController;
+use App\Http\Controllers\Api\ApplicationGeneralController;
 use App\Http\Controllers\Api\ApplicationDocumentController;
 use App\Http\Controllers\Api\SparePartController;
 use App\Http\Controllers\Api\WorkController;
@@ -40,7 +41,35 @@ Route::middleware('auth:sanctum')->group(function () {
     // 2. Список и создание
     Route::get('/applications', [ApplicationController::class, 'index']);
     Route::post('/applications', [ApplicationController::class, 'store']);
+    Route::get(
+        '/applications/general-options',
+        [ApplicationGeneralController::class, 'options']
+    );
 
+    Route::get(
+        '/applications/general-branch-employees',
+        [ApplicationGeneralController::class, 'branchEmployees']
+    );
+
+    Route::get(
+        '/applications/{id}/general',
+        [ApplicationGeneralController::class, 'show']
+    )->whereNumber('id');
+
+    Route::put(
+        '/applications/{id}/general',
+        [ApplicationGeneralController::class, 'update']
+    )->whereNumber('id');
+
+    Route::get(
+        '/general-lawyers',
+        [ApplicationGeneralController::class, 'lawyers']
+    );
+
+    Route::post(
+        '/general-lawyers',
+        [ApplicationGeneralController::class, 'storeLawyer']
+    );
     // 3. Конкретное дело
     Route::get('/applications/{id}', [ApplicationController::class, 'show']);
     Route::put('/applications/{id}', [ApplicationController::class, 'update']);
@@ -55,9 +84,6 @@ Route::middleware('auth:sanctum')->group(function () {
     // Маршрут обновления профиля (PUT)
     Route::put('/auth/profile', [AuthController::class, 'updateProfile']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
-    Route::get('/lawyers', [LawyerController::class, 'index']);
-    Route::post('/lawyers', [LawyerController::class, 'store']);
-    // ==========================================
     // 1. ЗАЯВКИ (APPLICATIONS)
     // ==========================================
     Route::apiResource('applications', ApplicationController::class);
