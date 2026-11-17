@@ -1,13 +1,12 @@
 <template>
     <div class="application-card-layout d-flex flex-column h-100 bg-light">
-        <!-- ТЕСТОВЫЙ БЛОК -->
-        <div style="background: red; color: white; padding: 10px;">
-            ApplicationShow МЕНЯ ВИДНО!
-        </div>
         <ApplicationCardHeader :application-id="applicationId" :application="cardData" :status="currentStatus"
             :saving="saving" :show-save="canSaveActiveModule" @back="goBack" @save="saveActiveModule" />
 
-        <ApplicationCardSummary :application="cardData" :insurance-name="currentInsuranceName" />
+        <ApplicationCardSummary :application="cardData" :insurance-name="currentInsuranceName"
+            :current-status="currentStatus" :all-statuses="options.statuses"
+            :all-finance-statuses="options.finance_statuses" @status-change="onStatusChanged"
+            @finance-status-change="onFinanceStatusChanged" />
 
         <ApplicationCardMenu v-if="hasValidApplicationId" :application-id="applicationId" />
 
@@ -48,7 +47,7 @@ import ApplicationCardHeader
 import ApplicationCardSummary
     from '../../components/applications/card/ApplicationCardSummary.vue';
 import ApplicationCardMenu
-    from '../../components/applications/card/ApplicationCardMenu.vue';
+    from '../../components/applications/card/ApplicationCardMenu.vue';// Путь к новому файлу
 
 const route = useRoute();
 const router = useRouter();
@@ -60,7 +59,11 @@ const moduleError = ref('');
 
 const options = reactive({
     statuses: [],
+    finance_statuses: [], // ОБЯЗАТЕЛЬНО добавь это поле
+    branches: [],
     insurance_companies: [],
+    services: [],
+    cities: [],
 });
 
 const applicationId = computed(() => Number(route.params.id));
@@ -140,19 +143,18 @@ async function saveActiveModule() {
 
 async function loadCardOptions() {
     try {
-        const response = await axios.get(
-            '/api/applications/general-options'
-        );
+        const { data } = await axios.get('/api/applications/general-options'); // или твой эндпоинт options
 
-        options.statuses = response.data?.statuses || [];
-        options.insurance_companies =
-            response.data?.insurance_companies || [];
+        options.statuses = data.statuses || [];
+        // Присваиваем массив финансовых статусов:
+        options.finance_statuses = data.finance_statuses || [];
+        options.branches = data.branches || [];
+        options.insurance_companies = data.insurance_companies || [];
+        options.services = data.services || [];
+
+        console.log('Загруженные фин. статусы:', options.finance_statuses); // ДЕБАГ-ЛОГ
     } catch (error) {
-        // Ошибка справочников шапки не блокирует открытие вкладки.
-        console.error(
-            'Не удалось загрузить справочники Header/Summary',
-            error
-        );
+        console.error('Ошибка загрузки опций карточки:', error);
     }
 }
 

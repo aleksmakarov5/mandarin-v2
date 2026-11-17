@@ -46,97 +46,42 @@
             </div>
 
             <div class="row g-3">
-                <div class="col-12 col-xl-8">
+                <div class="col-12 col-xl-9">
                     <div class="row g-3">
-                        <div class="col-12 col-md-6">
+                        <div class="col-12 col-md-5">
                             <GeneralVehicleSection :form="form" @commit="queueSave" />
                         </div>
 
-                        <div class="col-12 col-md-6">
+                        <div class="col-12 col-md-7">
                             <GeneralClientSection :form="form" @commit="queueSave" />
                         </div>
 
-                        <div class="col-12">
-                            <GeneralPassportSection :form="form" @commit="queueSave" />
-                        </div>
 
-                        <div class="col-12">
+                        <div class="col-12 col-md-5">
                             <GeneralInsuranceSection :form="form" :insurance-companies="options.insurance_companies"
                                 @commit="queueSave" />
                         </div>
 
-                        <div class="col-12">
+                        <div class="col-12 col-md-7">
                             <GeneralLogisticsSection :form="form" :branches="options.branches" :cities="options.cities"
                                 :services="options.services" @commit="queueSave" />
+                        </div>
+                        <div class="col-12">
+                            <GeneralPassportSection :form="form" @commit="queueSave" />
                         </div>
                     </div>
                 </div>
 
-                <div class="col-12 col-xl-4">
+                <div class="col-12 col-xl-3">
                     <GeneralStaffSection :form="form" :staff="staff" :lawyers="lawyers" @commit="queueSave"
                         @new-lawyer="openLawyerModal" />
                 </div>
             </div>
         </template>
 
-        <Teleport to="body">
-            <div v-if="showLawyerModal" class="modal-backdrop fade show" style="z-index: 1055"></div>
 
-            <div v-if="showLawyerModal" class="modal d-block" tabindex="-1" style="z-index: 1056"
-                @keydown.esc="showLawyerModal = false">
-                <div class="modal-dialog modal-dialog-centered px-3">
-                    <div class="modal-content border-0 shadow-lg">
-                        <div class="modal-header">
-                            <h6 class="modal-title fw-bold">Новый юрист</h6>
-                            <button type="button" class="btn-close" @click="showLawyerModal = false"></button>
-                        </div>
+        <LawyerCreateModal v-model:show="showLawyerModal" @created="onLawyerCreated" />
 
-                        <div class="modal-body">
-                            <div class="mb-2">
-                                <label class="form-label small fw-semibold">ФИО *</label>
-                                <input v-model="newLawyer.name" type="text" class="form-control form-control-sm"
-                                    maxlength="191" />
-                            </div>
-
-                            <div class="mb-2">
-                                <label class="form-label small fw-semibold">Телефон</label>
-                                <input v-model="newLawyer.phone" type="tel" class="form-control form-control-sm"
-                                    maxlength="50" placeholder="+7 (999) 123-45-67" />
-                            </div>
-
-                            <div class="mb-2">
-                                <label class="form-label small fw-semibold">Email</label>
-                                <input v-model="newLawyer.email" type="email" class="form-control form-control-sm"
-                                    maxlength="191" />
-                            </div>
-
-                            <div>
-                                <label class="form-label small fw-semibold">Примечание</label>
-                                <textarea v-model="newLawyer.comment" class="form-control form-control-sm" rows="3"
-                                    maxlength="2000"></textarea>
-                            </div>
-
-                            <div v-if="lawyerError" class="alert alert-danger small mt-3 mb-0">
-                                {{ lawyerError }}
-                            </div>
-                        </div>
-
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-sm btn-outline-secondary"
-                                @click="showLawyerModal = false">
-                                Отмена
-                            </button>
-
-                            <button type="button" class="btn btn-sm btn-primary"
-                                :disabled="creatingLawyer || !newLawyer.name.trim()" @click="createLawyer">
-                                <span v-if="creatingLawyer" class="spinner-border spinner-border-sm me-1"></span>
-                                Создать и выбрать
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </Teleport>
     </div>
 </template>
 
@@ -157,6 +102,8 @@ import GeneralInsuranceSection from './general/GeneralInsuranceSection.vue';
 import GeneralLogisticsSection from './general/GeneralLogisticsSection.vue';
 import GeneralStaffSection from './general/GeneralStaffSection.vue';
 
+import LawyerCreateModal from './card/LawyerCreateModal.vue';
+
 const props = defineProps({
     applicationId: {
         type: Number,
@@ -171,7 +118,7 @@ const GENERAL_FIELDS = [
     'gnz',
     'vin',
     'mnf_year',
-    'Color',
+    'color',
     'mileage',
     'vehicle_passport',
     'ClientName',
@@ -209,7 +156,7 @@ const DATE_FIELDS = [
     'ClientPasport_date',
     'DTPdate',
     'napr_date',
-    'view_date',
+    // 'view_date',
     'start_date',
     'sp_date',
     'end_date',
@@ -277,10 +224,19 @@ function normalizeForm(source) {
         }
     });
 
+    // 1. Обычные даты (обрезаем до 10 символов)
     DATE_FIELDS.forEach((field) => {
         const value = normalized[field];
         normalized[field] = value ? String(value).substring(0, 10) : null;
     });
+    // 2. СПЕЦИАЛЬНАЯ ОБРАБОТКА view_date (datetime-local)
+    const rawViewDate = normalized.view_date;
+    if (rawViewDate) {
+        // Превращаем "2026-11-17 14:30:00" -> "2026-11-17T14:30"
+        normalized.view_date = String(rawViewDate).replace(' ', 'T').substring(0, 16);
+    } else {
+        normalized.view_date = '';
+    }
 
     NUMERIC_FIELDS.forEach((field) => {
         const value = normalized[field];
@@ -297,8 +253,17 @@ function buildPayload() {
     const payload = {};
 
     GENERAL_FIELDS.forEach((field) => {
-        const value = form.value[field];
-        payload[field] = value === '' || value === undefined ? null : value;
+        let value = form.value[field];
+        if (value === '' || value === undefined) {
+            value = null;
+        }
+
+        // Приводим view_date к стандартному формату БД при сборке payload
+        if (field === 'view_date' && value) {
+            value = String(value).replace('T', ' ').substring(0, 16);
+        }
+
+        payload[field] = value;
     });
 
     return payload;
@@ -309,8 +274,14 @@ function getChangedPayload() {
     const changed = {};
 
     Object.entries(current).forEach(([field, value]) => {
-        const currentValue = value ?? null;
-        const savedValue = lastSavedPayload.value[field] ?? null;
+        let currentValue = value ?? null;
+        let savedValue = lastSavedPayload.value[field] ?? null;
+
+        // Нормализуем T и пробелы для корректного сравнения
+        if (field === 'view_date') {
+            if (currentValue) currentValue = String(currentValue).replace('T', ' ').substring(0, 16);
+            if (savedValue) savedValue = String(savedValue).replace('T', ' ').substring(0, 16);
+        }
 
         if (currentValue !== savedValue) {
             changed[field] = value;
@@ -424,6 +395,9 @@ async function saveCore(manual = false) {
 
     const payload = getChangedPayload();
 
+    // if (payload.view_date) {
+    //     payload.view_date = payload.view_date.replace('T', ' ');
+    // }
     if (!Object.keys(payload).length) {
         saveState.value = 'saved';
         saveError.value = '';
@@ -499,10 +473,14 @@ async function saveCore(manual = false) {
 
         if (succeeded) {
             const remaining = getChangedPayload();
-
-            if (saveQueued.value || Object.keys(remaining).length) {
+            if (payload.view_date) {
+                form.value.view_date = String(payload.view_date).replace(' ', 'T').substring(0, 16);
+            }
+            if (saveQueued.value && Object.keys(remaining).length > 0) {
                 saveQueued.value = false;
                 nextTick(() => saveCore(false));
+            } else {
+                saveQueued.value = false;
             }
         }
     }
@@ -548,7 +526,18 @@ function openLawyerModal() {
     lawyerError.value = '';
     showLawyerModal.value = true;
 }
+function onLawyerCreated(newLawyer) {
+    // Добавляем юриста в список, чтобы выпадающий список обновился
+    lawyers.value.push(newLawyer);
 
+    // Выбираем созданного юриста в форме дела
+    form.value.id_lawyer = Number(newLawyer.id);
+
+
+    showLawyerModal.value = false;
+    // Можно сразу вызвать автосохранение
+    scheduleAutoSave(100);
+}
 async function createLawyer() {
     if (!newLawyer.name.trim() || creatingLawyer.value) {
         return;
@@ -580,10 +569,17 @@ async function createLawyer() {
 }
 
 watch(
-    () => form.value.our_company,
-    () => {
-        if (!loading.value && form.value.id) {
-            loadStaff();
+    () => form.value?.our_company,
+    async (newBranch, oldBranch) => {
+        console.log('Филиал изменился:', oldBranch, '->', newBranch);
+
+        if (!loading.value && form.value?.id && newBranch) {
+            await loadStaff(); // Вызывай загрузку сотрудников
+        } else if (!newBranch) {
+            console.log('Филиал сброшен, очищаем список');
+            staff.mrk = [];
+            staff.mentors = [];
+            staff.spm = [];
         }
     }
 );

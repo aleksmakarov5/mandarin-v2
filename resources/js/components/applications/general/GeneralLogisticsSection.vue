@@ -40,7 +40,7 @@
             <div class="row g-2">
                 <div class="col-6 col-md-3">
                     <label class="form-label">Планируемый осмотр</label>
-                    <input v-model="form.view_date" type="date" class="form-control form-control-sm" />
+                    <input v-model="form.view_date" type="datetime-local" class="form-control form-control-sm" />
                 </div>
 
                 <div class="col-6 col-md-3">

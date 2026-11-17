@@ -8,7 +8,6 @@
             <div class="mb-3">
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <label class="form-label mb-0">Менеджер МРК</label>
-                    <span class="role-badge">Роль 5</span>
                 </div>
 
                 <select v-model.number="form.id_MRK" class="form-select form-select-sm">
@@ -22,7 +21,6 @@
             <div class="mb-3">
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <label class="form-label mb-0">Наставник</label>
-                    <span class="role-badge">Роль 6</span>
                 </div>
 
                 <select v-model.number="form.id_mentor" class="form-select form-select-sm">
@@ -36,7 +34,6 @@
             <div class="mb-3">
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <label class="form-label mb-0">Запчастист СПМ</label>
-                    <span class="role-badge">Роль 9</span>
                 </div>
 
                 <select v-model.number="form.id_spm" class="form-select form-select-sm">
@@ -58,12 +55,14 @@
                     </button>
                 </div>
 
-                <select v-model.number="form.id_lawyer" class="form-select form-select-sm">
+                <select id="application-lawyer" v-model.number="form.id_lawyer" class="form-select form-select-sm">
                     <option :value="null">Без юриста</option>
-                    <option v-for="lawyer in lawyers" :key="lawyer.id" :value="Number(lawyer.id)">
-                        {{ lawyer.name }}<template v-if="lawyer.phone"> — {{ lawyer.phone }}</template>
+                    <option v-for="lawyer in lawyers" :key="lawyer.id" :value="Number(lawyer.id)"
+                        :style="{ color: lawyer.is_cooperating ? '#15803d' : '#dc2626' }">
+                        {{ lawyer.is_cooperating ? '●' : '○' }} {{ lawyer.name }}
                     </option>
                 </select>
+
             </div>
 
             <div>

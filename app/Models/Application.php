@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-
 class Application extends Model
 {
     protected $table = 'applications';
@@ -44,8 +43,8 @@ class Application extends Model
         'sto_pay_date' => 'date:Y-m-d',
         'zp_date' => 'date:Y-m-d',
         'finish_pay_date' => 'date:Y-m-d',
-
         'view_date' => 'datetime:Y-m-d H:i:s',
+
         'check_date' => 'datetime:Y-m-d H:i:s',
         'ic_answer_date' => 'datetime:Y-m-d H:i:s',
     ];

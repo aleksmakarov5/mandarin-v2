@@ -458,7 +458,7 @@
                     style="font-size: 0.70rem;">
                     <span>Сумма СК: <strong>{{ formatMoney(item.sum_sk) }} р.</strong></span>
                     <span class="text-success fw-bold">Остаток: {{ formatMoney(item.remains) }} ({{ item.remains_percent
-                        }}%)</span>
+                    }}%)</span>
                 </div>
             </div>
 
@@ -859,7 +859,12 @@ const debounceFetch = () => {
     timer = setTimeout(() => fetchItems(1), 350);
 };
 
-const openApplication = (id) => router.push(`/applications/${id}`);
+const openApplication = (id) => {
+    router.push({
+        name: 'applications.general',
+        params: { id: id }
+    });
+};
 
 const moveToTrash = async (item) => {
     if (confirm(`Переместить дело #${item.id} в корзину?`)) {
@@ -897,6 +902,7 @@ watch(
 );
 
 onMounted(async () => {
+    console.log("Доступные маршруты:", router.getRoutes());
     loadSavedFilters();
     await fetchFilterOptions();
     fetchItems(1);

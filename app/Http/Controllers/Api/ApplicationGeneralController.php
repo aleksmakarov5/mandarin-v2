@@ -29,6 +29,7 @@ class ApplicationGeneralController extends Controller
         'pred_phone',
     ];
 
+
     public function show(int $id): JsonResponse
     {
         $application = Application::query()->findOrFail($id);
@@ -48,7 +49,7 @@ class ApplicationGeneralController extends Controller
             'gnz' => ['sometimes', 'nullable', 'string', 'max:32'],
             'vin' => ['sometimes', 'nullable', 'string', 'max:32'],
             'mnf_year' => ['sometimes', 'nullable', 'string', 'max:10'],
-            'Color' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'color' => ['sometimes', 'nullable', 'string', 'max:100'],
             'mileage' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'vehicle_passport' => ['sometimes', 'nullable', 'string', 'max:100'],
 
@@ -79,7 +80,7 @@ class ApplicationGeneralController extends Controller
             'our_company' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'id_city' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'id_service' => ['sometimes', 'nullable', 'integer', 'min:1'],
-            'view_date' => ['sometimes', 'nullable', 'date'],
+            'view_date' => ['sometimes', 'nullable'],
             'start_date' => ['sometimes', 'nullable', 'date'],
             'sp_date' => ['sometimes', 'nullable', 'date'],
 
@@ -122,6 +123,7 @@ class ApplicationGeneralController extends Controller
 
         DB::transaction(function () use ($application, $data): void {
             // Данные уже прошли строгий whitelist и проверку колонок.
+            \Log::info('Saving view_date:', ['value' => $data['view_date'] ?? 'NOT SET']);
             // forceFill исключает тихую потерю полей из-за незаполненного $fillable.
             $application->forceFill($data)->save();
         });
@@ -143,22 +145,71 @@ class ApplicationGeneralController extends Controller
             ? 'services'
             : (Schema::hasTable('service') ? 'service' : null);
 
-        $statusTable = Schema::hasTable('statuses')
-            ? 'statuses'
-            : (Schema::hasTable('status') ? 'status' : null);
+        // Точная таблица статусов
+        $statusTable = Schema::hasTable('application_statuses')
+            ? 'application_statuses'
+            : (Schema::hasTable('statuses') ? 'statuses' : null);
+
+        // Загружаем основные статусы дел с полями цвета и таймера
+        $statuses = $statusTable ? DB::table($statusTable)
+            ->select([
+                'id',
+                'name',
+                'bg_color',
+                'text_color',
+                'color',
+                'time',
+                'is_day',
+                'type',
+                'user_group_id',
+            ])
+            ->orderBy('id')
+            ->get()
+            ->map(static fn($s) => [
+                'id' => (int) $s->id,
+                'name' => $s->name,
+                'bg_color' => $s->bg_color ?: ($s->color ?: '#e2e8f0'),
+                'text_color' => $s->text_color ?: '#1e293b',
+                'time' => $s->time !== null ? (int) $s->time : null,
+                'is_day' => (bool) $s->is_day,
+                'type' => $s->type,
+                'user_group_id' => $s->user_group_id,
+            ]) : [];
+
+        // Загружаем финансовые статусы (если есть таблица)
+        $financeStatuses = Schema::hasTable('finance_statuses')
+            ? DB::table('finance_statuses')
+                ->select([
+                    'id',
+                    'name',
+                    'color',
+                    'bg_color',
+                    'text_color',
+                    'time',
+                    'is_day',
+                ])
+                ->orderBy('id')
+                ->get()
+                ->map(static fn($fs) => [
+                    'id' => (int) $fs->id,
+                    'name' => $fs->name,
+                    // Если bg_color еще не заполнен, берем старый color, иначе дефолтный синий
+                    'bg_color' => $fs->bg_color ?: ($fs->color ?: '#dbeafe'),
+                    'text_color' => $fs->text_color ?: '#1e40af',
+                    'time' => $fs->time !== null ? (int) $fs->time : null,
+                    'is_day' => (bool) ($fs->is_day ?? true),
+                ])
+            : [];
 
         return response()->json([
-            'statuses' => $this->tableOptions(
-                $statusTable,
-                ['bg_color', 'text_color']
-            ),
+            'statuses' => $statuses,
+            'finance_statuses' => $financeStatuses,
             'cities' => $this->tableOptions('cities'),
             'branches' => $this->tableOptions($branchTable),
             'insurance_companies' => $this->tableOptions('insurance_companies'),
             'services' => $this->tableOptions($serviceTable),
         ]);
     }
-
     public function branchEmployees(Request $request): JsonResponse
     {
         $branchId = $request->filled('branch_id')
@@ -191,7 +242,7 @@ class ApplicationGeneralController extends Controller
 
         $select = ['id', $nameColumn . ' as name'];
 
-        foreach (['phone', 'email', 'comment'] as $field) {
+        foreach (['phone', 'email', 'comment', 'is_cooperating'] as $field) {
             if (in_array($field, $columns, true)) {
                 $select[] = $field;
             }
@@ -220,6 +271,7 @@ class ApplicationGeneralController extends Controller
             'phone' => ['nullable', 'string', 'max:50'],
             'email' => ['nullable', 'email', 'max:191'],
             'comment' => ['nullable', 'string', 'max:2000'],
+            'is_cooperating' => ['nullable', 'boolean'], // <--- Добавь это
         ]);
 
         $columns = Schema::getColumnListing('lawyers');
@@ -243,6 +295,9 @@ class ApplicationGeneralController extends Controller
                 $validated['phone'] ?? null,
                 'phone'
             );
+        }
+        if (in_array('is_cooperating', $columns, true)) {
+            $insert['is_cooperating'] = (int) ($validated['is_cooperating'] ?? 0);
         }
 
         foreach (['email', 'comment'] as $field) {
@@ -270,6 +325,7 @@ class ApplicationGeneralController extends Controller
                 'phone' => $insert['phone'] ?? null,
                 'email' => $insert['email'] ?? null,
                 'comment' => $insert['comment'] ?? null,
+                'is_cooperating' => (bool) ($insert['is_cooperating'] ?? 0),
             ],
         ], 201);
     }
@@ -279,7 +335,7 @@ class ApplicationGeneralController extends Controller
         $data = $application->toArray();
 
         foreach (self::DATE_FIELDS as $field) {
-            if (array_key_exists($field, $data)) {
+            if (array_key_exists($field, $data) && $field !== 'view_date') {
                 $data[$field] = $this->dateOnly($data[$field]);
             }
         }
@@ -376,56 +432,45 @@ class ApplicationGeneralController extends Controller
             ->all();
     }
 
-    private function staffByRole(int $role, ?int $branchId): array
+    private function staffByRole(int $roleId, ?int $branchId): array
     {
-        if (!Schema::hasTable('users')) {
+        $pivotTable = 'our_company_user_role';
+
+        if (!Schema::hasTable($pivotTable) || !Schema::hasTable('users')) {
             return [];
         }
 
-        $columns = Schema::getColumnListing('users');
-
-        $roleColumn = $this->firstExistingColumn(
-            $columns,
-            ['role_id', 'id_role', 'group_id', 'group']
-        );
-
-        $branchColumn = $this->firstExistingColumn(
-            $columns,
-            ['our_company_id', 'our_company', 'branch_id', 'id_our_company']
-        );
-
-        $nameColumn = $this->firstExistingColumn(
-            $columns,
-            ['name', 'fio', 'FIO']
-        );
-
-        if (!$roleColumn || !$nameColumn) {
-            return [];
-        }
-
+        // 1. Просто выбираем нужные колонки
         $query = DB::table('users')
-            ->select(['id', $nameColumn . ' as name'])
-            ->where($roleColumn, $role);
-
-        if ($branchId && $branchColumn) {
-            $query->where($branchColumn, $branchId);
-        }
-
-        if (in_array('deleted_at', $columns, true)) {
-            $query->whereNull('deleted_at');
-        }
-
-        return $query
-            ->orderBy($nameColumn)
-            ->get()
-            ->map(static fn($row) => [
-                'id' => (int) $row->id,
-                'name' => $row->name,
+            ->join($pivotTable, 'users.id', '=', "{$pivotTable}.user_id")
+            ->select([
+                'users.id',
+                'users.last_name',
+                'users.name',
+                'users.patronymic'
             ])
+            ->where("{$pivotTable}.user_group_id", $roleId);
+
+        if ($branchId) {
+            $query->where("{$pivotTable}.our_company_id", $branchId);
+        }
+
+        // 2. Получаем результат и склеиваем в PHP
+        return $query
+            ->distinct()
+            ->orderBy('users.last_name')
+            ->get()
+            ->map(function ($row) {
+                // Склеиваем ФИО прямо здесь
+                $fio = trim($row->last_name . ' ' . $row->name . ' ' . $row->patronymic);
+                return [
+                    'id' => (int) $row->id,
+                    'name' => $fio ?: 'Без имени' // Если пустое - напишет "Без имени"
+                ];
+            })
             ->values()
             ->all();
     }
-
     private function firstExistingColumn(array $columns, array $candidates): ?string
     {
         foreach ($candidates as $candidate) {

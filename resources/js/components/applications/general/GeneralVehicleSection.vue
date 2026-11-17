@@ -40,7 +40,7 @@
             <div class="row g-2">
                 <div class="col-12 col-sm-6">
                     <label class="form-label">Цвет</label>
-                    <input v-model="form.Color" type="text" class="form-control form-control-sm" maxlength="100" />
+                    <input v-model="form.color" type="text" class="form-control form-control-sm" maxlength="100" />
                 </div>
 
                 <div class="col-12 col-sm-6">

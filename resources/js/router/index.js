@@ -4,6 +4,7 @@ import { applicationRoutes } from './applicationRoutes';
 
 const routes = [
     {
+
         path: '/login',
         name: 'login',
         component: () => import('../views/auth/Login.vue'),
@@ -63,6 +64,7 @@ const routes = [
                 component: () => import('../views/applications/ApplicationsList.vue'),
             },
 
+            ...applicationRoutes,
         ],
     },
     {
