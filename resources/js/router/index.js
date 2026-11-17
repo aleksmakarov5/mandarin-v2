@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
+import { applicationRoutes } from './applicationRoutes';
 
 const routes = [
     {
@@ -61,12 +62,7 @@ const routes = [
                 name: 'trash',
                 component: () => import('../views/applications/ApplicationsList.vue'),
             },
-            {
-                path: '/applications/:id',
-                name: 'application.show',
-                component: () => import('../views/applications/ApplicationShow.vue'),
-                meta: { requiresAuth: true }
-            },
+
         ],
     },
     {
