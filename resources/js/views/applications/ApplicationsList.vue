@@ -207,8 +207,17 @@
                         </td>
 
                         <!-- 10. Юрист -->
-                        <td class="col-lawyer text-center">
-                            <div class="lawyer-line"></div>
+                        <td class="col-lawyer text-center" @click.stop>
+                            <!-- Если юрист назначен: цветная плашка с ФИО -->
+                            <span v-if="item.lawyer && item.lawyer.id" class="badge-lawyer cell-truncate d-inline-block"
+                                :class="item.lawyer.is_cooperating ? 'badge-lawyer-coop' : 'badge-lawyer-no-coop'"
+                                @mouseenter="handleCellMouseEnter($event, (item.lawyer.is_cooperating ? 'Сотрудничает: ' : 'НЕ сотрудничает: ') + item.lawyer.name + (item.lawyer.phone ? ' (' + item.lawyer.phone + ')' : ''))"
+                                @mouseleave="handleCellMouseLeave">
+                                {{ item.lawyer.name }}
+                            </span>
+
+                            <!-- Если юрист не назначен -->
+                            <span v-else class="text-muted" style="font-size: 0.65rem;">—</span>
                         </td>
 
                         <!-- 11. № убытка -->
@@ -449,7 +458,7 @@
                     style="font-size: 0.70rem;">
                     <span>Сумма СК: <strong>{{ formatMoney(item.sum_sk) }} р.</strong></span>
                     <span class="text-success fw-bold">Остаток: {{ formatMoney(item.remains) }} ({{ item.remains_percent
-                    }}%)</span>
+                        }}%)</span>
                 </div>
             </div>
 
@@ -1589,5 +1598,72 @@ onMounted(async () => {
         opacity: 1;
         transform: translate(-50%, 0);
     }
+}
+
+.col-lawyer {
+    width: 44px;
+    min-width: 40px;
+    max-width: 48px;
+}
+
+.lawyer-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 0.72rem;
+    transition: transform 0.1s ease;
+    cursor: help;
+}
+
+.lawyer-pill:hover {
+    transform: scale(1.15);
+}
+
+.lawyer-coop {
+    background-color: #dcfce7;
+    color: #16a34a;
+    border: 1px solid #86efac;
+}
+
+.lawyer-no-coop {
+    background-color: #fee2e2;
+    color: #dc2626;
+    border: 1px solid #fca5a5;
+}
+
+/* Ширина колонки под ФИО */
+.col-lawyer {
+    width: 110px;
+    min-width: 75px;
+    max-width: 140px;
+}
+
+/* Базовый текстовый бейдж юриста */
+.badge-lawyer {
+    font-size: 0.6rem !important;
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 3px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    max-width: 100%;
+    cursor: default;
+}
+
+/* Зеленый - сотрудничает */
+.badge-lawyer-coop {
+    background-color: #dcfce7 !important;
+    color: #15803d !important;
+    border: 1px solid #86efac !important;
+}
+
+/* Красный - не сотрудничает */
+.badge-lawyer-no-coop {
+    background-color: #fee2e2 !important;
+    color: #b91c1c !important;
+    border: 1px solid #fca5a5 !important;
 }
 </style>

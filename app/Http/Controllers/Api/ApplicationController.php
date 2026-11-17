@@ -12,6 +12,8 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class ApplicationController extends Controller
 {
@@ -42,6 +44,7 @@ class ApplicationController extends Controller
             'city:id,name',
             'mrk:id,name,last_name,patronymic',
             'spm:id,name,last_name,patronymic',
+            'lawyer:id,name,phone,is_cooperating',
         ]);
 
         // 1. Фильтр вкладки по статусам (requests, applications, acceptance, archive, trash)
@@ -186,9 +189,54 @@ class ApplicationController extends Controller
     public function filterOptions(Request $request): JsonResponse
     {
         // 1. Статусы
-        $statuses = \App\Models\ApplicationStatus::select('id', 'name')
-            ->orderBy('id', 'asc')
-            ->get();
+        $statusTable = \Illuminate\Support\Facades\Schema::hasTable('application_statuses')
+            ? 'application_statuses'
+            : 'statuses';
+
+        $cols = \Illuminate\Support\Facades\Schema::getColumnListing($statusTable);
+
+        $statuses = \Illuminate\Support\Facades\DB::table($statusTable)
+            ->orderBy('id')
+            ->get()
+            ->map(function ($st) use ($cols) {
+                // Извлекаем цвет фона из любой возможной колонки
+                $bg = $st->bg_color ?? $st->color ?? $st->background_color ?? $st->bg ?? null;
+                // Извлекаем цвет текста
+                $text = $st->text_color ?? $st->font_color ?? null;
+
+                // Если hex без решётки (например, "e2e8f0"), добавляем '#'
+                if ($bg && !str_starts_with($bg, '#') && !str_starts_with($bg, 'rgb')) {
+                    $bg = '#' . $bg;
+                }
+                if ($text && !str_starts_with($text, '#') && !str_starts_with($text, 'rgb')) {
+                    $text = '#' . $text;
+                }
+
+                // Дефолтный цвет, если в БД не задан
+                if (!$bg) {
+                    $palette = [
+                        1 => ['#e2e8f0', '#334155'], // Новый / Черновик
+                        2 => ['#dbeafe', '#1e40af'], // В работе
+                        3 => ['#fef3c7', '#92400e'], // Согласование
+                        4 => ['#dcfce7', '#166534'], // Завершено
+                        5 => ['#fee2e2', '#991b1b'], // Отказ / Архив
+                    ];
+                    $bg = $palette[$st->id][0] ?? '#f1f5f9';
+                    $text = $palette[$st->id][1] ?? '#0f172a';
+                }
+
+                // Если цвет текста не указан, автоматически вычисляем контрастный (белый или темный)
+                if (!$text && $bg) {
+                    $text = '#0f172a'; // темный по умолчанию
+                }
+
+                return [
+                    'id' => (int) $st->id,
+                    'name' => $st->name ?? $st->title,
+                    'bg_color' => $bg,
+                    'text_color' => $text ?: '#ffffff',
+                ];
+            });
 
         // 2. Города
         $cities = \App\Models\City::select('id', 'name')
@@ -369,51 +417,67 @@ class ApplicationController extends Controller
     }
 
     /**
-     * Расчет финансовых показателей дела
+     * Безопасный расчет финансовых показателей дела
      */
     protected function calculateFinances(Application $app): array
     {
-        // 1. Сумма СК
-        $sumSk = (float) DB::table('works')
-            ->where('application_id', $app->id)
-            ->sum('price');
+        // 1. Сумма СК (согласованная сумма)
+        $sumSk = (float) ($app->sum_sk ?? 0);
 
-        // 2. Сумма запчастей
-        $sumZap = (float) DB::table('spare_parts')
-            ->where('application_id', $app->id)
-            ->sum('price');
+        // 2. Сумма запчастей: если в таблице applications есть колонка sum_zap, берем ее,
+        // либо пробуем посчитать из связанной таблицы безопасно
+        $sumZap = (float) ($app->sum_zap ?? 0);
+        if ($sumZap === 0.0 && \Illuminate\Support\Facades\Schema::hasTable('spare_parts')) {
+            try {
+                $column = \Illuminate\Support\Facades\Schema::hasColumn('spare_parts', 'price')
+                    ? 'price'
+                    : (\Illuminate\Support\Facades\Schema::hasColumn('spare_parts', 'cost') ? 'cost' : null);
 
-        // 3. Сумма ремонта = Работы + З/Ч
-        $remontSum = $sumSk + $sumZap;
+                if ($column) {
+                    $sumZap = (float) \Illuminate\Support\Facades\DB::table('spare_parts')
+                        ->where('application_id', $app->id)
+                        ->sum($column);
+                }
+            } catch (\Throwable $e) {
+                $sumZap = (float) ($app->sum_zap ?? 0);
+            }
+        }
 
-        // 4. Затраты на ремонт (себестоимость работ и деталей)
-        $workCosts = (float) DB::table('works')
-            ->where('application_id', $app->id)
-            ->sum('cost_price');
+        // 3. Сумма ремонта / работ
+        $remontSum = (float) ($app->remont_sum ?? 0);
+        if ($remontSum === 0.0 && \Illuminate\Support\Facades\Schema::hasTable('works')) {
+            try {
+                $column = \Illuminate\Support\Facades\Schema::hasColumn('works', 'price')
+                    ? 'price'
+                    : (\Illuminate\Support\Facades\Schema::hasColumn('works', 'cost') ? 'cost' : null);
 
-        $partCosts = (float) DB::table('spare_parts')
-            ->where('application_id', $app->id)
-            ->sum('cost_price');
+                if ($column) {
+                    $remontSum = (float) \Illuminate\Support\Facades\DB::table('works')
+                        ->where('application_id', $app->id)
+                        ->sum($column);
+                }
+            } catch (\Throwable $e) {
+                $remontSum = (float) ($app->remont_sum ?? 0);
+            }
+        }
 
-        $totalCosts = $workCosts + $partCosts;
+        // 4. Затраты, оплаты и остаток
+        $totalCosts = $sumZap + $remontSum;
+        $remains = $sumSk - $totalCosts;
+        $remainsPercent = $sumSk > 0 ? round(($remains / $sumSk) * 100) : 0;
 
-        // 5. Оплаты
         $icPay = (float) ($app->ic_pay ?? 0);
         $stoPay = (float) ($app->sto_pay ?? 0);
-
-        // 6. Остаток и процент выполнения
-        $remains = $remontSum - $totalCosts;
-        $remainsPercent = $remontSum > 0 ? round(($remains / $remontSum) * 100) : 0;
 
         return [
             'sum_sk' => $sumSk,
             'sum_zap' => $sumZap,
             'remont_sum' => $remontSum,
             'total_costs' => $totalCosts,
-            'ic_pay' => $icPay,
-            'sto_pay' => $stoPay,
             'remains' => $remains,
             'remains_percent' => $remainsPercent,
+            'ic_pay' => $icPay,
+            'sto_pay' => $stoPay,
         ];
     }
 
@@ -456,5 +520,587 @@ class ApplicationController extends Controller
         }
 
         return max(0, $workDays - 1);
+    }
+    /**
+     * Получение данных конкретного дела
+     */
+    public function show(int $id): JsonResponse
+    {
+        try {
+            $app = Application::with([
+                'status',
+                'insuranceCompany:id,name',
+                'ourCompany:id,name',
+                'city:id,name',
+                'mrk:id,name',
+                'spm:id,name',
+                'mentor:id,name',
+                'lawyer:id,name,phone,email',
+            ])->findOrFail($id);
+
+            // Безопасный расчет финансов
+            $finances = $this->calculateFinances($app);
+
+            // Преобразуем модель в массив и объединяем с финансами
+            $data = array_merge($app->attributesToArray(), [
+                'status' => $app->status,
+                'insurance_company' => $app->insuranceCompany,
+                'our_company_rel' => $app->ourCompany,
+                'city' => $app->city,
+                'mrk' => $app->mrk,
+                'spm' => $app->spm,
+            ], $finances);
+
+            return response()->json([
+                'data' => $data,
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['message' => "Дело #{$id} не найдено"], 404);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error("Ошибка в ApplicationController::show({$id}): " . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'message' => 'Ошибка загрузки карточки дела: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Обновление данных дела
+     */
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $application = Application::findOrFail($id);
+        $input = $request->all();
+
+        /*
+         * Пустые значения HTML-полей преобразуем в NULL.
+         * Важно: число 0 и строка "0" здесь не затрагиваются.
+         */
+        foreach ($input as $key => $value) {
+            if ($value === '') {
+                $input[$key] = null;
+            }
+        }
+
+        /*
+         * gender в таблице applications — tinyint(1):
+         * 1 — мужской, 0 — женский, NULL — не указан.
+         */
+        if (
+            array_key_exists('gender', $input)
+            && $input['gender'] !== null
+        ) {
+            if (is_bool($input['gender'])) {
+                $input['gender'] = $input['gender'] ? 1 : 0;
+            } else {
+                $gender = mb_strtolower(trim((string) $input['gender']));
+
+                $input['gender'] = match ($gender) {
+                    '1', 'м', 'm', 'male' => 1,
+                    '0', 'ж', 'f', 'female' => 0,
+                    default => $input['gender'],
+                };
+            }
+        }
+
+        /*
+         * Приводим российские телефоны к единому формату.
+         * Неполный номер останется неполным и будет отклонён валидацией.
+         */
+        foreach (['ClientPhone', 'pred_phone'] as $field) {
+            if (
+                !array_key_exists($field, $input)
+                || $input[$field] === null
+            ) {
+                continue;
+            }
+
+            $digits = preg_replace(
+                '/\D+/',
+                '',
+                (string) $input[$field]
+            ) ?? '';
+
+            if (strlen($digits) === 10) {
+                $digits = '7' . $digits;
+            }
+
+            if (strlen($digits) === 11 && $digits[0] === '8') {
+                $digits = '7' . substr($digits, 1);
+            }
+
+            if (strlen($digits) === 11 && $digits[0] === '7') {
+                $input[$field] = sprintf(
+                    '+7 (%s) %s-%s-%s',
+                    substr($digits, 1, 3),
+                    substr($digits, 4, 3),
+                    substr($digits, 7, 2),
+                    substr($digits, 9, 2)
+                );
+            } else {
+                // Оставляем значение для понятной ошибки regex-валидации.
+                $input[$field] = $digits;
+            }
+        }
+
+        $dateFields = [
+            'DTPdate',
+            'ClientPasport_date',
+            'birthday',
+            'napr_date',
+            'sp_date',
+            'start_date',
+            'end_date',
+            'ic_pay_date',
+            'sto_pay_date',
+            'zp_date',
+            'finish_pay_date',
+        ];
+
+        $dateTimeFields = [
+            'view_date',
+            'check_date',
+        ];
+
+        /*
+         * sometimes обязателен: при частичном обновлении Laravel не должен
+         * требовать поля, которые пользователь сейчас не изменял.
+         */
+        $rules = [
+            // Автомобиль
+            'CarModel' => [
+                'sometimes',
+                'required',
+                'string',
+                'max:255',
+            ],
+            'gnz' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'vin' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'mnf_year' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'vehicle_passport' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'Color' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'mileage' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'min:0',
+            ],
+
+            // Клиент
+            'ClientName' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'ClientPhone' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:32',
+                'regex:/^\+7 \(\d{3}\) \d{3}-\d{2}-\d{2}$/',
+            ],
+            'gender' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'in:0,1',
+            ],
+            'birthday' => [
+                'sometimes',
+                'nullable',
+                'date',
+            ],
+            'pred' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'pred_phone' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:32',
+                'regex:/^\+7 \(\d{3}\) \d{3}-\d{2}-\d{2}$/',
+            ],
+
+            // Паспорт клиента
+            'ClientPasport' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'ClientPasport_number' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'ClientPasport_struct' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            // Страховая компания и убыток
+            'id_insuranceCompany' => [
+                'sometimes',
+                'required',
+                'integer',
+                'min:1',
+            ],
+            'numberInsuranceCompanyApplication' => [
+                'sometimes',
+                'required',
+                'string',
+                'max:40',
+            ],
+            'ub_number' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'ub_type' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'in:0,1',
+            ],
+            'dogovor' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'email_company' => [
+                'sometimes',
+                'nullable',
+                'email',
+                'max:255',
+            ],
+
+            // Филиал и ответственные
+            'our_company' => [
+                'sometimes',
+                'required',
+                'integer',
+                'min:1',
+            ],
+            'id_city' => [
+                'sometimes',
+                'required',
+                'integer',
+                'min:0',
+            ],
+            'id_service' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'min:1',
+            ],
+            'id_status' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'min:1',
+            ],
+            'id_MRK' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'min:1',
+            ],
+            'id_spm' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'min:1',
+            ],
+            'id_lawyer' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'min:1',
+            ],
+
+            // Комментарии
+            'comment_true' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+            'comment_false' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+        ];
+
+        foreach ($dateFields as $field) {
+            // birthday уже присутствует в основных правилах
+            if (!isset($rules[$field])) {
+                $rules[$field] = [
+                    'sometimes',
+                    'nullable',
+                    'date',
+                ];
+            }
+        }
+
+        foreach ($dateTimeFields as $field) {
+            $rules[$field] = [
+                'sometimes',
+                'nullable',
+                'date',
+            ];
+        }
+
+        /*
+         * В старой версии таблицы колонки id_mentor могло не быть.
+         * Если её нет, поле просто игнорируется и не вызывает SQL-ошибку.
+         */
+        $hasMentorColumn = Schema::hasColumn(
+            'applications',
+            'id_mentor'
+        );
+
+        if ($hasMentorColumn) {
+            $rules['id_mentor'] = [
+                'sometimes',
+                'nullable',
+                'integer',
+                'min:1',
+            ];
+        }
+
+        $validated = validator($input, $rules, [
+            'ClientPhone.regex' =>
+                'Введите телефон клиента полностью: +7 (999) 123-45-67.',
+            'pred_phone.regex' =>
+                'Введите телефон представителя полностью: +7 (999) 123-45-67.',
+            'gender.in' =>
+                'Пол должен иметь значение 1, 0 или быть не указан.',
+        ])->validate();
+
+        /*
+         * Приводим даты к форматам соответствующих колонок MySQL.
+         */
+        foreach ($dateFields as $field) {
+            if (array_key_exists($field, $validated)) {
+                $validated[$field] = $validated[$field] !== null
+                    ? Carbon::parse($validated[$field])->format('Y-m-d')
+                    : null;
+            }
+        }
+
+        foreach ($dateTimeFields as $field) {
+            if (array_key_exists($field, $validated)) {
+                $validated[$field] = $validated[$field] !== null
+                    ? Carbon::parse($validated[$field])
+                        ->format('Y-m-d H:i:s')
+                    : null;
+            }
+        }
+
+        /*
+         * Если изменений нет, не выполняем лишний UPDATE.
+         */
+        if (empty($validated)) {
+            return response()->json([
+                'message' => 'Изменений нет',
+                'data' => $application,
+            ]);
+        }
+
+        try {
+            // Сохраняются только провалидированные и реально переданные поля.
+            $application->fill($validated);
+            $application->save();
+        } catch (\Throwable $e) {
+            Log::error("Ошибка обновления дела #{$id}", [
+                'fields' => array_keys($validated),
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' =>
+                    'Не удалось сохранить дело. Подробности записаны в laravel.log.',
+                'debug' => config('app.debug')
+                    ? $e->getMessage()
+                    : null,
+            ], 500);
+        }
+
+        $relations = [
+            'status',
+            'insuranceCompany',
+            'ourCompany',
+            'city',
+            'mrk',
+            'spm',
+            'lawyer',
+        ];
+
+        if ($hasMentorColumn) {
+            $relations[] = 'mentor';
+        }
+
+        return response()->json([
+            'message' => 'Дело сохранено',
+            'data' => $application->fresh($relations),
+        ]);
+    }
+
+    private function normalizeApplicationPhone(?string $phone): ?string
+    {
+        if ($phone === null || trim($phone) === '') {
+            return null;
+        }
+
+        $digits = preg_replace('/\D+/', '', $phone);
+
+        if (strlen($digits) === 10) {
+            $digits = '7' . $digits;
+        }
+
+        if (strlen($digits) === 11 && $digits[0] === '8') {
+            $digits = '7' . substr($digits, 1);
+        }
+
+        if (strlen($digits) === 11 && $digits[0] === '7') {
+            return sprintf(
+                '+7 (%s) %s-%s-%s',
+                substr($digits, 1, 3),
+                substr($digits, 4, 3),
+                substr($digits, 7, 2),
+                substr($digits, 9, 2)
+            );
+        }
+
+        // Старые нестандартные номера не затираем.
+        return $phone;
+    }
+    /**
+     * Получить сотрудников филиала по ролям:
+     * 5 - МРК, 6 - Наставник, 9 - Запчастист
+     */
+    /**
+     * Получить сотрудников филиала с полным ФИО
+     */
+    public function getBranchEmployees(Request $request): JsonResponse
+    {
+        $branchId = $request->query('branch_id') ? (int) $request->query('branch_id') : null;
+
+        // Определяем доступные колонки ФИО в таблице users
+        $userCols = \Illuminate\Support\Facades\Schema::getColumnListing('users');
+        $hasLastName = in_array('last_name', $userCols);
+        $hasPatronymic = in_array('patronymic', $userCols) || in_array('middle_name', $userCols);
+        $patronymicCol = in_array('patronymic', $userCols) ? 'patronymic' : 'middle_name';
+
+        $select = [
+            'users.id',
+            'users.name',
+            'our_company_user_role.user_group_id',
+            'our_company_user_role.our_company_id',
+        ];
+
+        if ($hasLastName) {
+            $select[] = 'users.last_name';
+        }
+        if ($hasPatronymic) {
+            $select[] = "users.{$patronymicCol} as patronymic";
+        }
+
+        $allBranchRecords = \Illuminate\Support\Facades\DB::table('our_company_user_role')
+            ->join('users', 'users.id', '=', 'our_company_user_role.user_id')
+            ->select($select)
+            ->get();
+
+        $branchRecords = $branchId
+            ? $allBranchRecords->where('our_company_id', $branchId)
+            : $allBranchRecords;
+
+        // Функция форматирования полного ФИО
+        $formatFio = function ($user) use ($hasLastName, $hasPatronymic) {
+            $parts = [];
+            if ($hasLastName && !empty($user->last_name)) {
+                $parts[] = trim($user->last_name);
+            }
+            if (!empty($user->name)) {
+                $parts[] = trim($user->name);
+            }
+            if ($hasPatronymic && !empty($user->patronymic)) {
+                $parts[] = trim($user->patronymic);
+            }
+
+            $fio = implode(' ', $parts);
+            return !empty($fio) ? $fio : ($user->name ?? "Сотрудник #{$user->id}");
+        };
+
+        // Хелпер для получения пользователей конкретной роли
+        $getUsersByRole = function (int $roleId) use ($branchRecords, $allBranchRecords, $formatFio) {
+            $list = $branchRecords->where('user_group_id', $roleId);
+            if ($list->isEmpty()) {
+                $list = $allBranchRecords->where('user_group_id', $roleId);
+            }
+
+            return $list->map(fn($u) => [
+                'id' => (int) $u->id,
+                'name' => $formatFio($u),
+            ])->unique('id')->sortBy('name')->values();
+        };
+
+        $mrk = $getUsersByRole(5);
+        $mentors = $getUsersByRole(6);
+        $spm = $getUsersByRole(9);
+
+        // Если для роли 9 пусто, отдаем пользователей с полным ФИО
+        if ($spm->isEmpty()) {
+            $query = \App\Models\User::query();
+            $spm = $query->get()->map(fn($u) => [
+                'id' => (int) $u->id,
+                'name' => trim(($u->last_name ?? '') . ' ' . $u->name . ' ' . ($u->patronymic ?? $u->middle_name ?? '')),
+            ])->sortBy('name')->values();
+        }
+
+        return response()->json([
+            'mrk' => $mrk,
+            'mentors' => $mentors,
+            'spm' => $spm,
+        ]);
     }
 }

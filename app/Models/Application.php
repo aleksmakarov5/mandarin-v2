@@ -2,39 +2,52 @@
 
 namespace App\Models;
 
-use App\Services\WorkdayService;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
 
 class Application extends Model
 {
     protected $table = 'applications';
 
+    /**
+     * Контроллер сам формирует белый список сохраняемых полей.
+     */
     protected $guarded = ['id'];
 
-    protected $appends = [
-        'is_overdue',
-        'time_status_text',
-        'soglas_title',
-        'soglas_time_text',
-        'soglas_overdue',
-        'remont_sum',
-        'total_costs',
-        'remains',
-        'remains_percent',
-    ];
-
     protected $casts = [
-        'DTPdate' => 'date',
-        'napr_date' => 'date',
-        'sp_date' => 'date',
-        'view_date' => 'datetime',
-        'check_date' => 'datetime',
-        'start_date' => 'date',
-        'end_date' => 'date',
-        'ic_pay_date' => 'date',
-        'sto_pay_date' => 'date',
+        'id_insuranceCompany' => 'integer',
+        'id_status' => 'integer',
+        'id_MRK' => 'integer',
+        'id_spm' => 'integer',
+        'id_mentor' => 'integer',
+        'id_lawyer' => 'integer',
+        'our_company' => 'integer',
+        'id_city' => 'integer',
+        'id_service' => 'integer',
+        'mileage' => 'integer',
+
+        // В базе: tinyint(1). 1 — мужской, 0 — женский.
+        'gender' => 'integer',
+        'ub_type' => 'integer',
+        'ic_answer' => 'integer',
+        'nds' => 'boolean',
+
+        'DTPdate' => 'date:Y-m-d',
+        'ClientPasport_date' => 'date:Y-m-d',
+        'birthday' => 'date:Y-m-d',
+        'napr_date' => 'date:Y-m-d',
+        'start_date' => 'date:Y-m-d',
+        'end_date' => 'date:Y-m-d',
+        'sp_date' => 'date:Y-m-d',
+        'ic_pay_date' => 'date:Y-m-d',
+        'sto_pay_date' => 'date:Y-m-d',
+        'zp_date' => 'date:Y-m-d',
+        'finish_pay_date' => 'date:Y-m-d',
+
+        'view_date' => 'datetime:Y-m-d H:i:s',
+        'check_date' => 'datetime:Y-m-d H:i:s',
+        'ic_answer_date' => 'datetime:Y-m-d H:i:s',
     ];
 
     public function status(): BelongsTo
@@ -61,136 +74,19 @@ class Application extends Model
     {
         return $this->belongsTo(User::class, 'id_MRK');
     }
+
     public function spm(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'id_spm')->withDefault([
-            'id' => null,
-            'name' => 'Не назначен',
-        ]);
+        return $this->belongsTo(User::class, 'id_spm');
     }
 
-    /**
-     * Определение опорной точки отсчета по статусу
-     */
-    protected function getBaseDateForTimer(): ?Carbon
+    public function mentor(): BelongsTo
     {
-        // В зависимости от статуса берется разная дата
-        return match ((int) $this->id_status) {
-            11, 12 => $this->napr_date ? Carbon::parse($this->napr_date) : $this->updated_at,
-            14 => $this->view_date ? Carbon::parse($this->view_date) : $this->updated_at,
-            15, 16 => $this->sp_date ? Carbon::parse($this->sp_date) : $this->updated_at,
-            default => $this->updated_at ?? $this->created_at,
-        };
+        return $this->belongsTo(User::class, 'id_mentor');
     }
 
-    /**
-     * Проверка просрочки
-     */
-    public function getIsOverdueAttribute(): bool
+    public function lawyer(): BelongsTo
     {
-        if (!$this->status || (int) $this->status->time <= 0) {
-            return false;
-        }
-
-        $baseDate = $this->getBaseDateForTimer();
-        if (!$baseDate)
-            return false;
-
-        $now = Carbon::now();
-
-        if ($this->status->is_day) {
-            // Расчет в РАБОЧИХ днях
-            $workdaysElapsed = WorkdayService::getWorkdaysBetween($baseDate, $now);
-            return $workdaysElapsed > (int) $this->status->time;
-        }
-
-        // Расчет в часах
-        return $baseDate->diffInHours($now) > (int) $this->status->time;
-    }
-
-    /**
-     * Текстовое отображение таймера (например: 9дней, 46часов, просрочено)
-     */
-    public function getTimeStatusTextAttribute(): string
-    {
-        $baseDate = $this->getBaseDateForTimer();
-        if (!$baseDate)
-            return '';
-
-        $now = Carbon::now();
-
-        if ($this->is_overdue) {
-            return 'просрочено';
-        }
-
-        if ($this->status?->is_day) {
-            $days = WorkdayService::getWorkdaysBetween($baseDate, $now);
-            return "{$days}дней";
-        }
-
-        $hours = $baseDate->diffInHours($now);
-        return "{$hours}часов";
-    }
-
-    /**
-     * Колонка Согл/Опл: название
-     */
-    public function getSoglasTitleAttribute(): string
-    {
-        // Пример логики согласования из старой базы
-        if ($this->ic_pay_date)
-            return 'Оплата получена';
-        if ($this->check_date)
-            return 'Счет создан';
-        if ($this->status?->id === 15)
-            return 'ПЗН согласован';
-        if ($this->status?->id === 10)
-            return 'Согласование АСП';
-        return '';
-    }
-
-    public function getSoglasTimeTextAttribute(): string
-    {
-        if (!$this->soglas_title)
-            return '';
-        $base = $this->check_date ?? $this->updated_at;
-        if (!$base)
-            return '';
-        $h = Carbon::parse($base)->diffInHours(Carbon::now());
-        return "{$h}часов";
-    }
-
-    public function getSoglasOverdueAttribute(): bool
-    {
-        return false;
-    }
-
-    /**
-     * Финансовые вычисляемые поля
-     */
-    public function getRemontSumAttribute(): float
-    {
-        return (float) ($this->attributes['remont_sum'] ?? 0);
-    }
-
-    public function getTotalCostsAttribute(): float
-    {
-        return (float) ($this->attributes['total_costs'] ?? 0);
-    }
-
-    public function getRemainsAttribute(): float
-    {
-        $icSum = (float) ($this->attributes['sum_sk'] ?? 0);
-        $stoPay = (float) ($this->attributes['sto_pay'] ?? 0);
-        return max(0, $icSum - $stoPay);
-    }
-
-    public function getRemainsPercentAttribute(): int
-    {
-        $icSum = (float) ($this->attributes['sum_sk'] ?? 0);
-        if ($icSum <= 0)
-            return 0;
-        $stoPay = (float) ($this->attributes['sto_pay'] ?? 0);
-        return (int) round(($stoPay / $icSum) * 100);
+        return $this->belongsTo(Lawyer::class, 'id_lawyer');
     }
 }

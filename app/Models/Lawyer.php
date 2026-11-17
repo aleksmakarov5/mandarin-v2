@@ -1,19 +1,22 @@
 <?php
-// app/Models/Lawyer.php
+
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Lawyer extends Model
 {
-    use HasFactory;
+    protected $table = 'lawyers';
 
-    protected $fillable = ['name', 'phone', 'email', 'theme'];
+    protected $fillable = [
+        'name',
+        'phone',
+        'email',
+        'is_cooperating',
+        'theme',
+    ];
 
-    public function applications(): HasMany
-    {
-        return $this->hasMany(Application::class);
-    }
+    protected $casts = [
+        'is_cooperating' => 'boolean',
+    ];
 }
