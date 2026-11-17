@@ -138,4 +138,7 @@ Route::middleware(['auth:sanctum', \App\Http\Middleware\EnsureIsSystemAdmin::cla
         Route::apiResource('cities', CityController::class);
         Route::apiResource('insurance-companies', InsuranceCompanyController::class);
         Route::apiResource('application-statuses', ApplicationStatusController::class);
+        Route::post('calendar-exceptions/defaults', [\App\Http\Controllers\Api\Admin\CalendarExceptionController::class, 'generateDefaults']);
+        Route::apiResource('calendar-exceptions', \App\Http\Controllers\Api\Admin\CalendarExceptionController::class);
+
     });

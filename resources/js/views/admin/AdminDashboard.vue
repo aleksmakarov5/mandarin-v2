@@ -66,6 +66,12 @@
                     <span>Статусы</span>
                     <span class="chip-count">{{ statuses.length }}</span>
                 </button>
+
+                <button class="tab-chip" :class="{ active: currentTab === 'calendar' }"
+                    @click="currentTab = 'calendar'">
+                    <i class="bi bi-calendar3 me-1"></i>
+                    <span>Производственный календарь</span>
+                </button>
             </div>
         </div>
 
@@ -127,7 +133,7 @@
 
                                 <td>
                                     <a :href="'mailto:' + u.email" class="text-decoration-none text-dark">{{ u.email
-                                        }}</a>
+                                    }}</a>
                                     <div class="small text-muted">{{ u.phone || '—' }}</div>
                                 </td>
                                 <td>
@@ -535,6 +541,93 @@
                 </div>
             </div>
         </div>
+        <!-- ВКЛАДКА: ПРОИЗВОДСТВЕННЫЙ КАЛЕНДАРЬ -->
+        <div v-if="currentTab === 'calendar'" class="content-block">
+            <!-- Панель управления годом и автозаполнением -->
+            <div class="card border-0 shadow-sm p-3 mb-3 bg-white">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="small fw-semibold text-muted">Год:</span>
+                        <select v-model="selectedCalendarYear" @change="fetchCalendarExceptions"
+                            class="form-select form-select-sm" style="width: 110px;">
+
+                            <option :value="2025">2025</option>
+                            <option :value="2026">2026</option>
+                            <option :value="2027">2027</option>
+                            <option :value="2028">2028</option>
+                            <option :value="2029">2029</option>
+                        </select>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-secondary btn-sm" @click="generateDefaultHolidays"
+                            title="Заполнить стандартные государственные праздники РФ">
+                            <i class="bi bi-magic me-1"></i> Заполнить гос. праздники
+                        </button>
+                        <button class="btn btn-primary btn-sm"
+                            @click="calendarModalRef?.open(null, selectedCalendarYear)">
+                            <i class="bi bi-plus-lg me-1"></i> Добавить день
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Таблица исключений -->
+            <div class="card border-0 shadow-sm">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 140px;">Дата</th>
+                                <th style="width: 110px;">День недели</th>
+                                <th style="width: 200px;">Тип</th>
+                                <th>Описание / Праздник</th>
+                                <th class="text-end" style="width: 110px;">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="item in calendarExceptions" :key="item.id">
+                                <td class="fw-bold font-monospace">{{ formatCalendarDate(item.date) }}</td>
+                                <td class="text-muted small">{{ getDayOfWeek(item.date) }}</td>
+                                <td>
+                                    <span v-if="item.is_workday"
+                                        class="badge bg-success-subtle text-success border border-success">
+                                        🟢 Рабочая суббота/воскресенье
+                                    </span>
+                                    <span v-else class="badge bg-danger-subtle text-danger border border-danger">
+                                        🔴 Праздник / Выходной
+                                    </span>
+                                </td>
+                                <td class="text-dark">{{ item.comment || '—' }}</td>
+                                <td class="text-end">
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-light border" title="Редактировать"
+                                            @click="calendarModalRef?.open(item)">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger" title="Удалить"
+                                            @click="deleteCalendarException(item)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr v-if="calendarExceptions.length === 0">
+                                <td colspan="5" class="text-center py-5 text-muted">
+                                    <i class="bi bi-calendar-x fs-2 d-block mb-1 text-secondary"></i>
+                                    На {{ selectedCalendarYear }} год исключений не настроено (действуют стандартные
+                                    праздники РФ)
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Модалка календаря -->
+        <CalendarModal ref="calendarModalRef" @saved="fetchCalendarExceptions" />
+
 
         <!-- ВСЕ МОДАЛЬНЫЕ ОКНА CRUD -->
         <UserModal ref="userModalRef" :groups="groups" :cities="cities" :branches="ourCompanies"
@@ -565,6 +658,60 @@ import CityModal from './components/CityModal.vue';
 import InsuranceCompanyModal from './components/InsuranceCompanyModal.vue';
 import GroupModal from './components/GroupModal.vue';
 import StatusModal from './components/StatusModal.vue';
+import CalendarModal from './components/CalendarModal.vue';
+
+const calendarModalRef = ref(null);
+const calendarExceptions = ref([]);
+const selectedCalendarYear = ref(new Date().getFullYear());
+
+const fetchCalendarExceptions = async () => {
+    try {
+        const res = await axios.get('/api/admin/calendar-exceptions', {
+            params: { year: selectedCalendarYear.value }
+        });
+        calendarExceptions.value = res.data.data || [];
+    } catch (e) {
+        console.error('Ошибка загрузки календаря:', e);
+    }
+};
+
+const generateDefaultHolidays = async () => {
+    if (confirm(`Заполнить стандартные праздники РФ на ${selectedCalendarYear.value} год?`)) {
+        try {
+            await axios.post('/api/admin/calendar-exceptions/defaults', { year: selectedCalendarYear.value });
+            fetchCalendarExceptions();
+        } catch (e) {
+            alert('Ошибка при генерации праздников');
+        }
+    }
+};
+
+const deleteCalendarException = async (item) => {
+    if (confirm(`Удалить исключение на дату ${item.date}?`)) {
+        try {
+            await axios.delete(`/api/admin/calendar-exceptions/${item.id}`);
+            fetchCalendarExceptions();
+        } catch (e) {
+            alert('Ошибка удаления записи');
+        }
+    }
+};
+
+const formatCalendarDate = (dateStr) => {
+    if (!dateStr) return '—';
+    const [y, m, d] = dateStr.split('-');
+    return `${d}.${m}.${y}`;
+};
+
+const getDayOfWeek = (dateStr) => {
+    if (!dateStr) return '';
+    const days = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+    const d = new Date(dateStr);
+    return days[d.getDay()];
+};
+
+// Вызовите fetchCalendarExceptions() в onMounted()
+
 
 // Добавьте ссылку на модалку:
 const statusModalRef = ref(null);
@@ -836,6 +983,7 @@ onMounted(() => {
     fetchInsuranceCompanies();
     fetchGroups();
     fetchStatuses();
+    fetchCalendarExceptions();
 });
 </script>
 
