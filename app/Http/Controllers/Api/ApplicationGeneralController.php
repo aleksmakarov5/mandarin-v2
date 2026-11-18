@@ -208,20 +208,17 @@ class ApplicationGeneralController extends Controller
         ]);
     }
 
-    public function options(): JsonResponse
+    public function options(Request $request): JsonResponse
     {
         $branchTable = Schema::hasTable('our_companies')
             ? 'our_companies'
             : (Schema::hasTable('branches') ? 'branches' : null);
 
-        $serviceTable = Schema::hasTable('services')
-            ? 'services'
-            : (Schema::hasTable('service') ? 'service' : null);
-
         $statusTable = Schema::hasTable('application_statuses')
             ? 'application_statuses'
             : (Schema::hasTable('statuses') ? 'statuses' : null);
 
+        // 1. Статусы дела
         $statuses = $statusTable ? DB::table($statusTable)
             ->select([
                 'id',
@@ -247,6 +244,7 @@ class ApplicationGeneralController extends Controller
                 'user_group_id' => $s->user_group_id,
             ]) : [];
 
+        // 2. Финансовые статусы
         $financeStatuses = Schema::hasTable('finance_statuses')
             ? DB::table('finance_statuses')
                 ->select([
@@ -270,6 +268,57 @@ class ApplicationGeneralController extends Controller
                 ])
             : [];
 
+        // 3. Выборка СТО с привязкой к филиалам через our_company_service
+        $branchId = $request->input('branch_id') ?: $request->input('our_company');
+        $services = [];
+
+        if (Schema::hasTable('services')) {
+            $servicesQuery = DB::table('services');
+
+            // Проверяем активность
+            if (Schema::hasColumn('services', 'is_active')) {
+                $servicesQuery->where('is_active', true);
+            }
+
+            // Если в запросе явно передан филиал и есть таблица связей
+            if ($branchId && Schema::hasTable('our_company_service')) {
+                $servicesQuery->whereExists(function ($q) use ($branchId) {
+                    $q->select(DB::raw(1))
+                        ->from('our_company_service')
+                        ->whereColumn('our_company_service.service_id', 'services.id')
+                        ->where('our_company_service.our_company_id', (int) $branchId);
+                });
+            }
+
+            $servicesCols = ['id', 'name'];
+            if (Schema::hasColumn('services', 'bg_color'))
+                $servicesCols[] = 'bg_color';
+            if (Schema::hasColumn('services', 'text_color'))
+                $servicesCols[] = 'text_color';
+
+            // Получаем маппинг связей сервис -> филиалы
+            $branchPivot = [];
+            if (Schema::hasTable('our_company_service')) {
+                $pivots = DB::table('our_company_service')->get();
+                foreach ($pivots as $p) {
+                    $branchPivot[$p->service_id][] = (int) $p->our_company_id;
+                }
+            }
+
+            $services = $servicesQuery->select($servicesCols)
+                ->orderBy('name')
+                ->get()
+                ->map(static fn($s) => [
+                    'id' => (int) $s->id,
+                    'name' => $s->name,
+                    'bg_color' => $s->bg_color ?? '#e0f2fe',
+                    'text_color' => $s->text_color ?? '#0369a1',
+                    'branch_ids' => $branchPivot[$s->id] ?? [],
+                ])
+                ->values()
+                ->all();
+        }
+
         return response()->json([
             'statuses' => $statuses,
             'finance_statuses' => $financeStatuses,
@@ -279,7 +328,7 @@ class ApplicationGeneralController extends Controller
                 'insurance_companies',
                 ['bg_color', 'text_color']
             ),
-            'services' => $this->tableOptions($serviceTable),
+            'services' => $services,
         ]);
     }
 

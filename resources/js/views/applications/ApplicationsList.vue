@@ -203,11 +203,10 @@
                         </td>
 
                         <!-- 9. СТО -->
+                        <!-- Ячейка СТО в таблице -->
                         <td class="col-sto text-center">
-                            <span class="badge-sto cell-truncate d-inline-block"
-                                @mouseenter="handleCellMouseEnter($event, item.service_name || 'Прочее')"
-                                @mouseleave="handleCellMouseLeave">
-                                {{ item.service_name || 'Прочее' }}
+                            <span class="badge-sto" :style="getServiceBadgeStyle(item)" :title="getServiceName(item)">
+                                {{ getServiceName(item) }}
                             </span>
                         </td>
 
@@ -439,6 +438,24 @@ const options = reactive({
     branches: [],
     insurance_companies: [],
 });
+
+// Название сервиса
+const getServiceName = (item) => {
+    return item.service?.name || item.service_name || 'Прочее';
+};
+
+// Стиль бейджа сервиса с темой из БД
+const getServiceBadgeStyle = (item) => {
+    const bg = item.service?.bg_color || item.service_bg || '#e0f2fe';
+    const text = item.service?.text_color || item.service_text || '#0369a1';
+
+    return {
+        backgroundColor: bg.startsWith('#') || bg.startsWith('rgb') ? bg : `#${bg}`,
+        color: text.startsWith('#') || text.startsWith('rgb') ? text : `#${text}`,
+        border: '1px solid rgba(0, 0, 0, 0.12)',
+        fontWeight: '600',
+    };
+};
 
 const getInitialFilters = () => ({
     id: '',
@@ -1118,9 +1135,10 @@ onMounted(async () => {
 }
 
 .col-sto {
-    width: 68px;
-    min-width: 65px;
-    max-width: 75px;
+    width: 110px !important;
+    min-width: 100px !important;
+    max-width: 130px !important;
+    padding: 2px 4px !important;
 }
 
 .col-lawyer {
@@ -1233,15 +1251,22 @@ onMounted(async () => {
     line-height: 1.2;
 }
 
+/* Стили бейджа автосервиса */
 .badge-sto {
-    font-size: 0.63rem !important;
-    font-weight: 500;
-    padding: 1px 4px;
-    background-color: #e0f2fe;
-    color: #0284c7;
-    border-radius: 3px;
-    border: 1px solid #000000;
-    line-height: 1.2;
+    display: inline-block !important;
+    max-width: 100% !important;
+    width: auto !important;
+    font-size: 0.68rem !important;
+    font-weight: 600 !important;
+    line-height: 1.25 !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    /* Добавляет аккуратное троеточие ... вместо среза буквы */
+    vertical-align: middle !important;
+    box-sizing: border-box !important;
 }
 
 .mob-filter-btn {
@@ -1345,5 +1370,16 @@ onMounted(async () => {
     background-color: #d52b1e;
     height: 1.33px;
     width: 100%;
+}
+
+.badge-sto {
+    font-size: 0.68rem !important;
+    padding: 1px 6px !important;
+    border-radius: 4px !important;
+    display: inline-block;
+    max-width: 90px;
+    line-height: 1.25;
+    white-space: nowrap;
+    letter-spacing: 0.2px;
 }
 </style>

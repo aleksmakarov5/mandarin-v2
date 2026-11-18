@@ -48,4 +48,10 @@ class OurCompany extends Model
             ->withPivot('user_group_id', 'is_active')
             ->withTimestamps();
     }
+
+    public function services(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(Service::class, 'our_company_service', 'our_company_id', 'service_id')
+            ->withTimestamps();
+    }
 }

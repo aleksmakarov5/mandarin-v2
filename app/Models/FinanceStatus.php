@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Schema;
 
 class FinanceStatus extends Model
 {
@@ -21,13 +22,13 @@ class FinanceStatus extends Model
         'is_day',
     ];
 
-    protected $casts = [
-        'time' => 'integer',
-        'is_day' => 'boolean',
-    ];
-
     public function applications(): HasMany
     {
-        return $this->hasMany(Application::class, 'finance_status_id');
+        // Поддерживаем как finance_status_id, так и id_finance_status
+        $foreignKey = Schema::hasColumn('applications', 'finance_status_id')
+            ? 'finance_status_id'
+            : 'id_finance_status';
+
+        return $this->hasMany(Application::class, $foreignKey);
     }
 }

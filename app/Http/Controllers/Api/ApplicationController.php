@@ -53,6 +53,8 @@ class ApplicationController extends Controller
                 $withRelations[] = 'insuranceCompany';
             if (method_exists($appInstance, 'ourCompany'))
                 $withRelations[] = 'ourCompany';
+            if (method_exists($appInstance, 'service'))
+                $withRelations[] = 'service';
             if (method_exists($appInstance, 'city'))
                 $withRelations[] = 'city';
             if (method_exists($appInstance, 'mrk'))
@@ -209,6 +211,22 @@ class ApplicationController extends Controller
                     ->toArray();
             }
 
+            // Подгружаем справочник сервисов (СТО) с цветами темы
+            $servicesMap = [];
+            if (Schema::hasTable('services')) {
+                $serviceCols = ['id', 'name'];
+                if (Schema::hasColumn('services', 'bg_color'))
+                    $serviceCols[] = 'bg_color';
+                if (Schema::hasColumn('services', 'text_color'))
+                    $serviceCols[] = 'text_color';
+
+                $servicesMap = \Illuminate\Support\Facades\DB::table('services')
+                    ->select($serviceCols)
+                    ->get()
+                    ->keyBy('id')
+                    ->toArray();
+            }
+
             // Подгружаем справочник финансовых статусов со всеми возможными полями
             $finStatusesMap = [];
             if (Schema::hasTable('finance_statuses')) {
@@ -239,7 +257,19 @@ class ApplicationController extends Controller
                 $timerService = app(\App\Services\ApplicationTimerService::class);
             }
 
-            $paginator->getCollection()->transform(function ($app) use ($timerService, $tab, $lawyersMap, $finStatusesMap) {
+            $paginator->getCollection()->transform(function ($app) use ($timerService, $tab, $lawyersMap, $finStatusesMap, $servicesMap) {
+                // Сервис (СТО): привязка и цвета темы
+                $serviceId = (int) ($app->id_service ?? $app->service_id ?? 0);
+                if ((!$app->relationLoaded('service') || !$app->service) && $serviceId > 0 && isset($servicesMap[$serviceId])) {
+                    $app->setRelation('service', (object) $servicesMap[$serviceId]);
+                    $app->service = (object) $servicesMap[$serviceId];
+                }
+
+                $serviceObj = $app->service ?? null;
+                $app->service_name = $serviceObj?->name ?? $app->service_name ?? 'Прочее';
+                $app->service_bg = $serviceObj?->bg_color ?? '#e0f2fe';
+                $app->service_text = $serviceObj?->text_color ?? '#0369a1';
+
                 // Юрист: если связь пуста, но есть id_lawyer
                 $lawyerId = (int) ($app->id_lawyer ?? $app->lawyer_id ?? 0);
                 if (!$app->relationLoaded('lawyer') || !$app->lawyer) {

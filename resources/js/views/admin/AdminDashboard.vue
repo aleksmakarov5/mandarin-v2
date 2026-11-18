@@ -21,65 +21,101 @@
         </div>
 
         <!-- 2. ВКЛАДКИ-ЧИПСЫ С ГОРИЗОНТАЛЬНЫМ СКРОЛЛОМ ДЛЯ СМАРТФОНОВ -->
-        <div class="admin-tabs-wrapper mb-3">
-            <div class="d-flex gap-2 flex-nowrap py-1">
-                <button class="tab-chip" :class="{ active: currentTab === 'users' }" @click="setTab('users')">
-                    <i class="bi bi-people-fill me-1"></i>
-                    <span>Пользователи</span>
-                    <span class="chip-count">{{ pagination.total || users.length }}</span>
-                </button>
+        <!-- 2. ВКЛАДКИ-ЧИПСЫ С ГОРИЗОНТАЛЬНЫМ СКРОЛЛОМ ДЛЯ ДЕСКТОПА И МОБИЛЬНЫХ -->
+        <div class="admin-tabs-nav-container position-relative mb-3">
+            <!-- Кнопка прокрутки влево (Десктоп) -->
+            <!-- <button v-show="canScrollLeft" type="button"
+                class="scroll-arrow-btn left d-none d-md-flex align-items-center justify-content-center"
+                @click="scrollTabs('left')" title="Прокрутить влево">
+                <i class="bi bi-chevron-left"></i>
+            </button> -->
 
-                <button class="tab-chip" :class="{ active: currentTab === 'legal-entities' }"
-                    @click="setTab('legal-entities')">
-                    <i class="bi bi-briefcase-fill me-1"></i>
-                    <span>Юр. лица</span>
-                    <span class="chip-count">{{ legalEntities.length }}</span>
-                </button>
+            <!-- Прокручиваемый контейнер -->
+            <div ref="tabsScrollRef" class="admin-tabs-wrapper py-1" @scroll="handleTabsScroll" @wheel="handleTabsWheel"
+                @mousedown="startTabsDrag" @mousemove="onTabsDrag" @mouseup="stopTabsDrag" @mouseleave="stopTabsDrag">
+                <div class="d-flex gap-2 flex-nowrap align-items-center">
+                    <!-- 1. Пользователи -->
+                    <button class="tab-chip" :class="{ active: currentTab === 'users' }" @click="setTab('users')">
+                        <i class="bi bi-people-fill me-1"></i>
+                        <span>Пользователи</span>
+                        <span class="chip-count">{{ pagination.total || users.length }}</span>
+                    </button>
 
-                <button class="tab-chip" :class="{ active: currentTab === 'our-companies' }"
-                    @click="setTab('our-companies')">
-                    <i class="bi bi-shop me-1"></i>
-                    <span>Наши филиалы</span>
-                    <span class="chip-count">{{ ourCompanies.length }}</span>
-                </button>
+                    <!-- 2. Юр. лица -->
+                    <button class="tab-chip" :class="{ active: currentTab === 'legal-entities' }"
+                        @click="setTab('legal-entities')">
+                        <i class="bi bi-briefcase-fill me-1"></i>
+                        <span>Юр. лица</span>
+                        <span class="chip-count">{{ legalEntities.length }}</span>
+                    </button>
 
-                <button class="tab-chip" :class="{ active: currentTab === 'cities' }" @click="setTab('cities')">
-                    <i class="bi bi-geo-alt-fill me-1"></i>
-                    <span>Города</span>
-                    <span class="chip-count">{{ cities.length }}</span>
-                </button>
+                    <!-- 3. Наши филиалы -->
+                    <button class="tab-chip" :class="{ active: currentTab === 'our-companies' }"
+                        @click="setTab('our-companies')">
+                        <i class="bi bi-shop me-1"></i>
+                        <span>Наши филиалы</span>
+                        <span class="chip-count">{{ ourCompanies.length }}</span>
+                    </button>
 
-                <button class="tab-chip" :class="{ active: currentTab === 'companies' }" @click="setTab('companies')">
-                    <i class="bi bi-building me-1"></i>
-                    <span>Страховые</span>
-                    <span class="chip-count">{{ companies.length }}</span>
-                </button>
+                    <!-- 4. Автосервисы (СТО) -->
+                    <button class="tab-chip" :class="{ active: currentTab === 'services' }" @click="setTab('services')">
+                        <i class="bi bi-tools me-1"></i>
+                        <span>Автосервисы (СТО)</span>
+                        <span class="chip-count">{{ servicesList.length }}</span>
+                    </button>
 
-                <button class="tab-chip" :class="{ active: currentTab === 'groups' }" @click="setTab('groups')">
-                    <i class="bi bi-person-badge-fill me-1"></i>
-                    <span>Роли</span>
-                    <span class="chip-count">{{ groups.length }}</span>
-                </button>
+                    <!-- 5. Города -->
+                    <button class="tab-chip" :class="{ active: currentTab === 'cities' }" @click="setTab('cities')">
+                        <i class="bi bi-geo-alt-fill me-1"></i>
+                        <span>Города</span>
+                        <span class="chip-count">{{ cities.length }}</span>
+                    </button>
 
-                <button class="tab-chip" :class="{ active: currentTab === 'statuses' }" @click="setTab('statuses')">
-                    <i class="bi bi-tags-fill me-1"></i>
-                    <span>Статусы</span>
-                    <span class="chip-count">{{ statuses.length }}</span>
-                </button>
+                    <!-- 6. Страховые компании -->
+                    <button class="tab-chip" :class="{ active: currentTab === 'companies' }"
+                        @click="setTab('companies')">
+                        <i class="bi bi-building me-1"></i>
+                        <span>Страховые</span>
+                        <span class="chip-count">{{ companies.length }}</span>
+                    </button>
 
-                <button class="tab-chip" :class="{ active: currentTab === 'finance-statuses' }"
-                    @click="setTab('finance-statuses')">
-                    <i class="bi bi-cash-coin me-1"></i>
-                    <span>Фин. статусы</span>
-                    <span class="chip-count">{{ financeStatuses.length }}</span>
-                </button>
+                    <!-- 7. Роли -->
+                    <button class="tab-chip" :class="{ active: currentTab === 'groups' }" @click="setTab('groups')">
+                        <i class="bi bi-person-badge-fill me-1"></i>
+                        <span>Роли</span>
+                        <span class="chip-count">{{ groups.length }}</span>
+                    </button>
 
-                <button class="tab-chip" :class="{ active: currentTab === 'calendar' }"
-                    @click="currentTab = 'calendar'">
-                    <i class="bi bi-calendar3 me-1"></i>
-                    <span>Производственный календарь</span>
-                </button>
+                    <!-- 8. Статусы заявок -->
+                    <button class="tab-chip" :class="{ active: currentTab === 'statuses' }" @click="setTab('statuses')">
+                        <i class="bi bi-tags-fill me-1"></i>
+                        <span>Статусы заявок</span>
+                        <span class="chip-count">{{ statuses.length }}</span>
+                    </button>
+
+                    <!-- 9. Финансовые статусы (если есть) -->
+                    <button v-if="financeStatuses" class="tab-chip"
+                        :class="{ active: currentTab === 'finance-statuses' }" @click="setTab('finance-statuses')">
+                        <i class="bi bi-cash-stack me-1"></i>
+                        <span>Фин. статусы</span>
+                        <span class="chip-count">{{ financeStatuses.length }}</span>
+                    </button>
+
+                    <!-- 10. Производственный календарь -->
+                    <button class="tab-chip" :class="{ active: currentTab === 'calendar' }" @click="setTab('calendar')">
+                        <i class="bi bi-calendar3 me-1"></i>
+                        <span>Производственный календарь</span>
+                        <span class="chip-count">{{ calendarExceptions.length }}</span>
+                    </button>
+                </div>
             </div>
+
+            <!-- Кнопка прокрутки вправо (Десктоп) -->
+            <!-- <button v-show="canScrollRight" type="button"
+                class="scroll-arrow-btn right d-none d-md-flex align-items-center justify-content-center"
+                @click="scrollTabs('right')" title="Прокрутить вправо">
+                <i class="bi bi-chevron-right"></i>
+            </button> -->
         </div>
 
         <!-- 3. ВКЛАДКА: ПОЛЬЗОВАТЕЛИ -->
@@ -140,7 +176,7 @@
 
                                 <td>
                                     <a :href="'mailto:' + u.email" class="text-decoration-none text-dark">{{ u.email
-                                        }}</a>
+                                    }}</a>
                                     <div class="small text-muted">{{ u.phone || '—' }}</div>
                                 </td>
                                 <td>
@@ -466,6 +502,132 @@
             </div>
         </div>
 
+        <!-- ВКЛАДКА: АВТОСЕРВИСЫ (СТО) -->
+        <div v-if="currentTab === 'services'" class="content-block">
+            <!-- Панель поиска и создания -->
+            <div class="card border-0 shadow-sm p-3 mb-3 bg-white">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="input-group input-group-sm" style="width: 280px;">
+                            <span class="input-group-text bg-light border-end-0"><i class="bi bi-search"></i></span>
+                            <input v-model="servicesSearch" @input="fetchServices" type="text"
+                                class="form-control border-start-0"
+                                placeholder="Поиск по названию, телефону, адресу..." />
+                        </div>
+
+                        <select v-model="servicesBranchFilter" @change="fetchServices"
+                            class="form-select form-select-sm w-auto">
+                            <option value="">Все филиалы</option>
+                            <option v-for="b in ourCompanies" :key="b.id" :value="b.id">{{ b.our_name || b.name }}
+                            </option>
+                        </select>
+                    </div>
+
+                    <button class="btn btn-primary btn-sm px-3 fw-semibold" @click="serviceModalRef?.open()">
+                        <i class="bi bi-plus-lg me-1"></i> Добавить автосервис
+                    </button>
+                </div>
+            </div>
+
+            <!-- Таблица автосервисов -->
+            <div class="card border-0 shadow-sm">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 60px;">ID</th>
+                                <th>Автосервис / СТО</th>
+                                <th>Контакты</th>
+                                <th>Ответственный (User)</th>
+                                <th>Привязанные филиалы</th>
+                                <th>Адрес</th>
+                                <th style="width: 90px;" class="text-center">Статус</th>
+                                <th class="text-end" style="width: 110px;">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="item in servicesList" :key="item.id">
+                                <td class="text-muted">#{{ item.id }}</td>
+                                <td>
+                                    <!-- Превью брендированного бейджа СТО -->
+                                    <div class="d-flex align-items-center gap-2 mb-1">
+                                        <span class="badge px-2 py-1 text-truncate" :style="{
+                                            backgroundColor: item.bg_color || '#e0f2fe',
+                                            color: item.text_color || '#0369a1',
+                                            border: '1px solid rgba(0,0,0,0.1)',
+                                            fontWeight: '600',
+                                            fontSize: '0.72rem'
+                                        }">
+                                            {{ item.name }}
+                                        </span>
+                                    </div>
+                                    <small class="text-muted text-truncate d-inline-block" style="max-width: 220px;"
+                                        :title="item.comment">
+                                        {{ item.comment || '—' }}
+                                    </small>
+                                </td>
+                                <td>
+                                    <div v-if="item.phone" class="font-monospace small">
+                                        <i class="bi bi-telephone me-1 text-muted"></i>{{ item.phone }}
+                                    </div>
+                                    <div v-if="item.email" class="small text-muted">
+                                        <i class="bi bi-envelope me-1"></i>{{ item.email }}
+                                    </div>
+                                    <span v-if="!item.phone && !item.email" class="text-muted small">—</span>
+                                </td>
+                                <td>
+                                    <span v-if="item.user" class="badge bg-light text-dark border">
+                                        <i class="bi bi-person-fill text-primary me-1"></i>
+                                        {{ item.user.last_name ? `${item.user.last_name} ${item.user.name}` :
+                                            item.user.name }}
+                                    </span>
+                                    <span v-else class="text-muted small">Не привязан</span>
+                                </td>
+                                <td>
+                                    <div class="d-flex flex-wrap gap-1" v-if="item.branches && item.branches.length">
+                                        <span v-for="br in item.branches" :key="br.id"
+                                            class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                                            {{ br.our_name || br.name }}
+                                        </span>
+                                    </div>
+                                    <span v-else class="text-muted small">Все филиалы</span>
+                                </td>
+                                <td>
+                                    <span class="small text-muted text-truncate d-inline-block"
+                                        style="max-width: 200px;" :title="item.address">
+                                        {{ item.address || '—' }}
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <span v-if="item.is_active"
+                                        class="badge bg-success-subtle text-success border border-success">Активен</span>
+                                    <span v-else class="badge bg-secondary-subtle text-secondary border">Отключен</span>
+                                </td>
+                                <td class="text-end">
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-light border" title="Редактировать"
+                                            @click="serviceModalRef?.open(item)">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger" title="Удалить"
+                                            @click="deleteService(item)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr v-if="servicesList.length === 0">
+                                <td colspan="8" class="text-center py-5 text-muted">Автосервисы не найдены</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Модалка автосервиса -->
+        <ServiceModal ref="serviceModalRef" :branches="ourCompanies" :users="users" @saved="fetchServices" />
+
         <!-- 8. ВКЛАДКА: РОЛИ -->
         <div v-if="currentTab === 'groups'" class="content-block">
             <div class="card border-0 shadow-sm">
@@ -509,16 +671,18 @@
         </div>
 
         <!-- 9. ВКЛАДКА: СТАТУСЫ -->
+        <!-- ВКЛАДКА: СТАТУСЫ ДЕЛ -->
         <div v-if="currentTab === 'statuses'" class="content-block">
             <div class="card border-0 shadow-sm">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
                         <thead class="table-light">
                             <tr>
-                                <th style="width: 70px;">ID</th>
+                                <th style="width: 60px;">ID</th>
                                 <th>Статус</th>
-                                <th>Цветовой код / Тема</th>
                                 <th>Группа / Роль</th>
+                                <th>Норматив таймера</th>
+                                <th>Заявок</th>
                                 <th class="text-end" style="width: 110px;">Действия</th>
                             </tr>
                         </thead>
@@ -526,19 +690,25 @@
                             <tr v-for="st in statuses" :key="st.id">
                                 <td class="text-muted fw-bold">#{{ st.id }}</td>
                                 <td>
-                                    <!-- Бейдж с индивидуальным цветом фона и текста -->
-                                    <span class="badge px-2 py-1 fw-semibold" :style="{
-                                        backgroundColor: st.bg_color || '#f1f5f9',
-                                        color: st.text_color || '#334155',
-                                        border: '1px solid ' + (st.text_color || '#334155') + '22'
+                                    <span class="badge px-2 py-1 fw-semibold shadow-sm" :style="{
+                                        backgroundColor: st.bg_color || '#fef08a',
+                                        color: st.text_color || '#854d0e',
+                                        border: '1px solid ' + (st.text_color || '#854d0e') + '33'
                                     }">
                                         {{ st.name }}
                                     </span>
                                 </td>
+                                <td>{{ st.group?.name || 'Общий статус' }}</td>
                                 <td>
-                                    <span class="text-muted small">
-                                        {{ st.group?.name || 'Общий статус' }}
+                                    <span v-if="st.time && st.time > 0" class="badge bg-light text-dark border">
+                                        <i class="bi bi-clock me-1 text-primary"></i>
+                                        {{ st.time }} {{ st.is_day ? 'раб. дн.' : 'ч.' }}
                                     </span>
+                                    <span v-else class="text-muted small">Без таймера</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-light text-muted border">{{ st.applications_count || 0
+                                    }}</span>
                                 </td>
                                 <td class="text-end">
                                     <div class="btn-group btn-group-sm">
@@ -552,6 +722,9 @@
                                         </button>
                                     </div>
                                 </td>
+                            </tr>
+                            <tr v-if="statuses.length === 0">
+                                <td colspan="6" class="text-center py-5 text-muted">Статусы еще не созданы</td>
                             </tr>
                         </tbody>
                     </table>
@@ -594,7 +767,7 @@
                                 </td>
                                 <td>
                                     <span class="badge bg-light text-muted border">{{ fst.applications_count || 0
-                                        }}</span>
+                                    }}</span>
                                 </td>
                                 <td class="text-end">
                                     <div class="btn-group btn-group-sm">
@@ -726,7 +899,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue';
 import axios from 'axios';
 import { useAuthStore } from '../../stores/auth';
 
@@ -739,6 +912,111 @@ import GroupModal from './components/GroupModal.vue';
 import StatusModal from './components/StatusModal.vue';
 import CalendarModal from './components/CalendarModal.vue';
 import FinanceStatusModal from './components/FinanceStatusModal.vue';
+import ServiceModal from './components/ServiceModal.vue';
+
+const tabsScrollRef = ref(null);
+const canScrollLeft = ref(false);
+const canScrollRight = ref(false);
+
+// Проверка доступности прокрутки влево/вправо
+const checkScrollButtons = () => {
+    const el = tabsScrollRef.value;
+    if (!el) return;
+    canScrollLeft.value = el.scrollLeft > 5;
+    canScrollRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 5;
+};
+
+const handleTabsScroll = () => {
+    checkScrollButtons();
+};
+
+// Прокрутка обычным колесиком мыши по горизонтали
+const handleTabsWheel = (e) => {
+    const el = tabsScrollRef.value;
+    if (!el) return;
+    // Если нет зажатого Shift, перенаправляем вертикальное колесо в горизонтальное
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+        checkScrollButtons();
+    }
+};
+
+// Прокрутка кнопками-стрелками
+const scrollTabs = (direction) => {
+    const el = tabsScrollRef.value;
+    if (!el) return;
+    const offset = direction === 'left' ? -260 : 260;
+    el.scrollBy({ left: offset, behavior: 'smooth' });
+    setTimeout(checkScrollButtons, 300);
+};
+
+// Drag-to-Scroll (перетаскивание ленты мышкой)
+let isDragging = false;
+let startX = 0;
+let scrollStart = 0;
+
+const startTabsDrag = (e) => {
+    // Игнорируем нажатие, если кликнули по интерактивному элементу
+    isDragging = true;
+    startX = e.pageX - tabsScrollRef.value.offsetLeft;
+    scrollStart = tabsScrollRef.value.scrollLeft;
+};
+
+const onTabsDrag = (e) => {
+    if (!isDragging) return;
+    e.preventDefault();
+    const x = e.pageX - tabsScrollRef.value.offsetLeft;
+    const walk = (x - startX) * 1.5;
+    tabsScrollRef.value.scrollLeft = scrollStart - walk;
+    checkScrollButtons();
+};
+
+const stopTabsDrag = () => {
+    isDragging = false;
+};
+
+onMounted(() => {
+    nextTick(() => {
+        checkScrollButtons();
+        window.addEventListener('resize', checkScrollButtons);
+    });
+});
+
+onUnmounted(() => {
+    window.removeEventListener('resize', checkScrollButtons);
+});
+const serviceModalRef = ref(null);
+const servicesList = ref([]);
+const servicesSearch = ref('');
+const servicesBranchFilter = ref('');
+
+const fetchServices = async () => {
+    try {
+        const res = await axios.get('/api/admin/services', {
+            params: {
+                search: servicesSearch.value || undefined,
+                branch_id: servicesBranchFilter.value || undefined,
+            }
+        });
+        servicesList.value = res.data.data || [];
+    } catch (err) {
+        console.error('Ошибка загрузки сервисов:', err);
+    }
+};
+
+const deleteService = async (item) => {
+    if (confirm(`Удалить автосервис «${item.name}»?`)) {
+        try {
+            await axios.delete(`/api/admin/services/${item.id}`);
+            fetchServices();
+        } catch (err) {
+            alert(err.response?.data?.message || 'Не удалось удалить сервис');
+        }
+    }
+};
+
+// При переключении на вкладку 'services' вызываем fetchServices()
 
 const financeStatusModalRef = ref(null);
 const financeStatuses = ref([]);
@@ -746,9 +1024,12 @@ const financeStatuses = ref([]);
 const fetchFinanceStatuses = async () => {
     try {
         const res = await axios.get('/api/admin/finance-statuses');
-        financeStatuses.value = res.data.data || res.data || [];
+        // Гарантированно разбираем любой ответ сервера:
+        const result = res.data?.data ?? res.data;
+        financeStatuses.value = Array.isArray(result) ? result : [];
     } catch (e) {
         console.error('Ошибка загрузки фин. статусов:', e);
+        financeStatuses.value = [];
     }
 };
 
@@ -830,7 +1111,11 @@ const cities = ref([]);
 const companies = ref([]);
 const groups = ref([]);
 const statuses = ref([]);
-
+watch(currentTab, (newTab) => {
+    if (newTab === 'services') {
+        fetchServices();
+    }
+});
 // Фильтрация и пагинация
 const userSearchQuery = ref('');
 const selectedGroupFilter = ref('');
@@ -861,10 +1146,8 @@ const createButtonText = computed(() => {
         case 'our-companies': return 'Добавить филиал';
         case 'cities': return 'Добавить город';
         case 'companies': return 'Добавить страховую';
-        case 'groups': return 'Добавить роль';
+        case 'services': return 'Добавить автосервис'; // <-- добавлено
         case 'statuses': return 'Добавить статус';
-        case 'finance-statuses': return 'Добавить фин. статус';
-        case 'calendar': return 'Добавить день';
         default: return 'Создать';
     }
 });
@@ -881,16 +1164,10 @@ const handleCreateNew = () => {
         cityModalRef.value?.open();
     } else if (currentTab.value === 'companies') {
         insuranceCompanyModalRef.value?.open();
-    } else if (currentTab.value === 'groups') {
-        groupModalRef.value?.open();
+    } else if (currentTab.value === 'services') {
+        serviceModalRef.value?.open(); // <-- добавлено
     } else if (currentTab.value === 'statuses') {
-        statusModalRef.value?.open(); // <-- ВОТ ЭТА СТРОКА
-    }
-    else if (currentTab.value === 'finance-statuses') {
-        financeStatusModalRef.value?.open();
-    }
-    else if (currentTab.value === 'calendar') {
-        calendarModalRef.value?.open(null, selectedCalendarYear.value);
+        statusModalRef.value?.open();
     }
 };
 
@@ -985,8 +1262,8 @@ const fetchGroups = async () => {
 const fetchStatuses = async () => {
     try {
         const res = await axios.get('/api/admin/application-statuses');
-        // Поддерживаем res.data.data (если пагинация) или чистый массив res.data
-        statuses.value = res.data.data || res.data || [];
+        const result = res.data?.data ?? res.data;
+        statuses.value = Array.isArray(result) ? result : [];
     } catch (e) {
         console.error('Ошибка загрузки статусов:', e);
         statuses.value = [];
@@ -1093,7 +1370,9 @@ onMounted(() => {
     fetchInsuranceCompanies();
     fetchGroups();
     fetchStatuses();
+    fetchFinanceStatuses();
     fetchCalendarExceptions();
+    fetchServices();
 });
 </script>
 
@@ -1121,6 +1400,129 @@ onMounted(() => {
     white-space: nowrap;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
     transition: all 0.2s ease;
+}
+
+.tab-chip:hover {
+    background: #f8f9fa;
+    color: #212529;
+}
+
+.tab-chip.active {
+    background: linear-gradient(135deg, #f37021 0%, #e65100 100%);
+    color: #ffffff;
+    border-color: #e65100;
+    box-shadow: 0 2px 8px rgba(243, 112, 33, 0.35);
+}
+
+.tab-chip.active i {
+    color: #ffffff;
+}
+
+.chip-count {
+    background: rgba(0, 0, 0, 0.08);
+    font-size: 0.7rem;
+    padding: 1px 6px;
+    border-radius: 10px;
+    margin-left: 6px;
+}
+
+.tab-chip.active .chip-count {
+    background: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+}
+
+/* Обертка навигации с кнопками-стрелками */
+.admin-tabs-nav-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+/* Лента вкладок */
+.admin-tabs-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    cursor: grab;
+    user-select: none;
+
+    /* Тонкий аккуратный скроллбар для десктопа */
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+}
+
+.admin-tabs-wrapper:active {
+    cursor: grabbing;
+}
+
+/* Стилизация полосы прокрутки для Webkit (Chrome, Edge, Safari, Opera) */
+.admin-tabs-wrapper::-webkit-scrollbar {
+    height: 4px;
+}
+
+.admin-tabs-wrapper::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.admin-tabs-wrapper::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 4px;
+}
+
+.admin-tabs-wrapper::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8;
+}
+
+/* Плавающие кнопки-стрелки прокрутки на десктопе */
+.scroll-arrow-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+    z-index: 5;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.scroll-arrow-btn:hover {
+    background: #f8fafc;
+    color: #ea580c;
+    border-color: #ea580c;
+    transform: translateY(-50%) scale(1.08);
+}
+
+.scroll-arrow-btn.left {
+    left: -10px;
+}
+
+.scroll-arrow-btn.right {
+    right: -10px;
+}
+
+/* Кнопки-чипсы */
+.tab-chip {
+    display: inline-flex;
+    align-items: center;
+    background: #ffffff;
+    border: 1px solid rgba(222, 226, 230, 0.9);
+    color: #495057;
+    font-size: 0.82rem;
+    font-weight: 500;
+    padding: 0.45rem 0.85rem;
+    border-radius: 20px;
+    white-space: nowrap;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    transition: all 0.2s ease;
+    flex-shrink: 0;
 }
 
 .tab-chip:hover {

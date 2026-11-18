@@ -156,4 +156,9 @@ class User extends Authenticatable
             ->unique()
             ->toArray();
     }
+
+    public function service(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Service::class, 'user_id');
+    }
 }
