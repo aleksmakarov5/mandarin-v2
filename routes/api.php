@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\Admin\ApplicationStatusController;
 use App\Http\Controllers\Api\Admin\CityController;
 use App\Http\Controllers\Api\Admin\LegalEntityController;
 use App\Http\Controllers\Api\Admin\OurCompanyController;
+use App\Http\Controllers\Api\Admin\FinanceStatusController;
 /*|--------------------------------------------------------------------------
 | Публичные маршруты
 |--------------------------------------------------------------------------
@@ -136,6 +137,7 @@ Route::middleware(['auth:sanctum', \App\Http\Middleware\EnsureIsSystemAdmin::cla
         Route::apiResource('legal-entities', LegalEntityController::class);
         Route::apiResource('our-companies', OurCompanyController::class);
         Route::apiResource('cities', CityController::class);
+        Route::apiResource('finance-statuses', FinanceStatusController::class);
         Route::apiResource('insurance-companies', InsuranceCompanyController::class);
         Route::apiResource('application-statuses', ApplicationStatusController::class);
         Route::post('calendar-exceptions/defaults', [\App\Http\Controllers\Api\Admin\CalendarExceptionController::class, 'generateDefaults']);

@@ -4,10 +4,11 @@
             :saving="saving" :show-save="canSaveActiveModule" @back="goBack" @save="saveActiveModule" />
 
         <!-- Краткая сводка (Summary) со статусами и тайм-барами -->
+        <!-- Краткая сводка (Summary) со статусами и тайм-барами -->
         <ApplicationCardSummary :application="cardData" :insurance-name="currentInsuranceName"
-            :current-status="currentStatus" :all-statuses="options.statuses"
-            :all-finance-statuses="options.finance_statuses" @status-change="onStatusChanged"
-            @finance-status-change="onFinanceStatusChanged" />
+            :insurance-companies="options.insurance_companies" :current-status="currentStatus"
+            :all-statuses="options.statuses" :all-finance-statuses="options.finance_statuses"
+            @status-change="onStatusChanged" @finance-status-change="onFinanceStatusChanged" />
 
 
         <!-- 2. ДВЕ ПОЛОСЫ ТАЙМЕРОВ (ШИРИНА 100%, ТОЛЩИНА 2 ММ) -->
@@ -141,9 +142,9 @@ async function loadCardOptions() {
 
         options.statuses = data.statuses || [];
         options.finance_statuses = data.finance_statuses || [];
-        options.insurance_companies = data.insurance_companies || [];
+        options.insurance_companies = data.insurance_companies || []; // Проверьте эту строку!
     } catch (error) {
-        console.error('Не удалось загрузить справочники Header/Summary:', error);
+        console.error('Не удалось загрузить справочники:', error);
     }
 }
 

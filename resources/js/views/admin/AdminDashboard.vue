@@ -67,6 +67,13 @@
                     <span class="chip-count">{{ statuses.length }}</span>
                 </button>
 
+                <button class="tab-chip" :class="{ active: currentTab === 'finance-statuses' }"
+                    @click="setTab('finance-statuses')">
+                    <i class="bi bi-cash-coin me-1"></i>
+                    <span>Фин. статусы</span>
+                    <span class="chip-count">{{ financeStatuses.length }}</span>
+                </button>
+
                 <button class="tab-chip" :class="{ active: currentTab === 'calendar' }"
                     @click="currentTab = 'calendar'">
                     <i class="bi bi-calendar3 me-1"></i>
@@ -133,7 +140,7 @@
 
                                 <td>
                                     <a :href="'mailto:' + u.email" class="text-decoration-none text-dark">{{ u.email
-                                    }}</a>
+                                        }}</a>
                                     <div class="small text-muted">{{ u.phone || '—' }}</div>
                                 </td>
                                 <td>
@@ -401,7 +408,7 @@
             </div>
         </div>
 
-        <!-- 7. ВКЛАДКА: СТРАХОВЫЕ КОМПАНИИ -->
+        <!-- ВКЛАДКА: СТРАХОВЫЕ КОМПАНИИ -->
         <div v-if="currentTab === 'companies'" class="content-block">
             <div class="card border-0 shadow-sm">
                 <div class="table-responsive">
@@ -409,7 +416,8 @@
                         <thead class="table-light">
                             <tr>
                                 <th style="width: 60px;">ID</th>
-                                <th>Страховая компания</th>
+                                <th>Наименование СК</th>
+                                <th>Тема бейджа</th>
                                 <th>Куратор</th>
                                 <th>Контакты</th>
                                 <th>Адрес</th>
@@ -420,7 +428,16 @@
                             <tr v-for="comp in companies" :key="comp.id">
                                 <td class="text-muted">#{{ comp.id }}</td>
                                 <td class="fw-bold text-dark">{{ comp.name }}</td>
-                                <td>{{ comp.curator || '—' }}</td>
+                                <td>
+                                    <span class="badge px-2 py-1 fw-bold shadow-sm" :style="{
+                                        backgroundColor: comp.bg_color || '#fce7f3',
+                                        color: comp.text_color || '#be185d',
+                                        border: '1px solid ' + (comp.text_color || '#be185d') + '33'
+                                    }">
+                                        {{ comp.name }}
+                                    </span>
+                                </td>
+                                <td>{{ comp.curator || comp.manager || '—' }}</td>
                                 <td>
                                     <div>{{ comp.phone || '—' }}</div>
                                     <small class="text-muted">{{ comp.email || '' }}</small>
@@ -428,7 +445,7 @@
                                 <td>{{ comp.address || '—' }}</td>
                                 <td class="text-end">
                                     <div class="btn-group btn-group-sm">
-                                        <button class="btn btn-light border" title="Редактировать"
+                                        <button class="btn btn-light border" title="Редактировать тему и данные"
                                             @click="insuranceCompanyModalRef?.open(comp)">
                                             <i class="bi bi-pencil"></i>
                                         </button>
@@ -440,7 +457,7 @@
                                 </td>
                             </tr>
                             <tr v-if="companies.length === 0">
-                                <td colspan="6" class="text-center py-5 text-muted">Страховые компании еще не добавлены
+                                <td colspan="7" class="text-center py-5 text-muted">Страховые компании еще не добавлены
                                 </td>
                             </tr>
                         </tbody>
@@ -541,6 +558,67 @@
                 </div>
             </div>
         </div>
+        <!-- ВКЛАДКА: ФИНАНСОВЫЕ СТАТУСЫ -->
+        <div v-if="currentTab === 'finance-statuses'" class="content-block">
+            <div class="card border-0 shadow-sm">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 60px;">ID</th>
+                                <th>Статус</th>
+                                <th>Тема бейджа</th>
+                                <th>Норматив таймера</th>
+                                <th>Заявок</th>
+                                <th class="text-end" style="width: 110px;">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="fst in financeStatuses" :key="fst.id">
+                                <td class="text-muted fw-bold">#{{ fst.id }}</td>
+                                <td class="fw-semibold text-dark">{{ fst.name }}</td>
+                                <td>
+                                    <span class="badge px-2 py-1 fw-semibold shadow-sm" :style="{
+                                        backgroundColor: fst.bg_color || '#e0f2fe',
+                                        color: fst.text_color || '#0369a1',
+                                        border: '1px solid ' + (fst.text_color || '#0369a1') + '33'
+                                    }">
+                                        {{ fst.name }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span v-if="fst.time > 0" class="badge bg-light text-dark border">
+                                        {{ fst.time }} {{ fst.is_day ? 'раб. дн.' : 'час.' }}
+                                    </span>
+                                    <span v-else class="text-muted small">Без таймера</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-light text-muted border">{{ fst.applications_count || 0
+                                        }}</span>
+                                </td>
+                                <td class="text-end">
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-light border" title="Редактировать"
+                                            @click="financeStatusModalRef?.open(fst)">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger" title="Удалить"
+                                            @click="deleteFinanceStatus(fst)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr v-if="financeStatuses.length === 0">
+                                <td colspan="6" class="text-center py-5 text-muted">Финансовые статусы еще не созданы
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- ВКЛАДКА: ПРОИЗВОДСТВЕННЫЙ КАЛЕНДАРЬ -->
         <div v-if="currentTab === 'calendar'" class="content-block">
             <!-- Панель управления годом и автозаполнением -->
@@ -643,6 +721,7 @@
 
         <GroupModal ref="groupModalRef" @saved="fetchGroups" />
         <StatusModal ref="statusModalRef" :groups="groups" @saved="fetchStatuses" />
+        <FinanceStatusModal ref="financeStatusModalRef" @saved="fetchFinanceStatuses" />
     </div>
 </template>
 
@@ -659,7 +738,30 @@ import InsuranceCompanyModal from './components/InsuranceCompanyModal.vue';
 import GroupModal from './components/GroupModal.vue';
 import StatusModal from './components/StatusModal.vue';
 import CalendarModal from './components/CalendarModal.vue';
+import FinanceStatusModal from './components/FinanceStatusModal.vue';
 
+const financeStatusModalRef = ref(null);
+const financeStatuses = ref([]);
+
+const fetchFinanceStatuses = async () => {
+    try {
+        const res = await axios.get('/api/admin/finance-statuses');
+        financeStatuses.value = res.data.data || res.data || [];
+    } catch (e) {
+        console.error('Ошибка загрузки фин. статусов:', e);
+    }
+};
+
+const deleteFinanceStatus = async (fst) => {
+    if (confirm(`Удалить финансовый статус «${fst.name}»?`)) {
+        try {
+            await axios.delete(`/api/admin/finance-statuses/${fst.id}`);
+            fetchFinanceStatuses();
+        } catch (err) {
+            alert(err.response?.data?.message || 'Не удалось удалить фин. статус.');
+        }
+    }
+};
 const calendarModalRef = ref(null);
 const calendarExceptions = ref([]);
 const selectedCalendarYear = ref(new Date().getFullYear());
@@ -761,6 +863,8 @@ const createButtonText = computed(() => {
         case 'companies': return 'Добавить страховую';
         case 'groups': return 'Добавить роль';
         case 'statuses': return 'Добавить статус';
+        case 'finance-statuses': return 'Добавить фин. статус';
+        case 'calendar': return 'Добавить день';
         default: return 'Создать';
     }
 });
@@ -781,6 +885,12 @@ const handleCreateNew = () => {
         groupModalRef.value?.open();
     } else if (currentTab.value === 'statuses') {
         statusModalRef.value?.open(); // <-- ВОТ ЭТА СТРОКА
+    }
+    else if (currentTab.value === 'finance-statuses') {
+        financeStatusModalRef.value?.open();
+    }
+    else if (currentTab.value === 'calendar') {
+        calendarModalRef.value?.open(null, selectedCalendarYear.value);
     }
 };
 

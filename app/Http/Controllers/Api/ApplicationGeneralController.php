@@ -42,7 +42,7 @@ class ApplicationGeneralController extends Controller
         $app = Application::with([
             'status',
             'financeStatus',
-            'insuranceCompany:id,name',
+            'insuranceCompany:id,name,bg_color,text_color',
             'ourCompany:id,name',
             'city:id,name',
             'mrk:id,name,last_name,patronymic',
@@ -275,7 +275,10 @@ class ApplicationGeneralController extends Controller
             'finance_statuses' => $financeStatuses,
             'cities' => $this->tableOptions('cities'),
             'branches' => $this->tableOptions($branchTable),
-            'insurance_companies' => $this->tableOptions('insurance_companies'),
+            'insurance_companies' => $this->tableOptions(
+                'insurance_companies',
+                ['bg_color', 'text_color']
+            ),
             'services' => $this->tableOptions($serviceTable),
         ]);
     }

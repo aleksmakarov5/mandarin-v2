@@ -135,8 +135,7 @@
 
                 <tbody>
                     <tr v-for="(item, idx) in items" :key="item.id" class="data-row"
-                        :class="{ 'row-urgent': isItemUrgent(item) }" :style="getRowBackgroundStyle(item)"
-                        @click="openApplication(item.id)">
+                        :style="getRowBackgroundStyle(item)" @click="openApplication(item.id)">
                         <!-- 1. Индекс '#' (ярко-красный при срочности) -->
                         <td class="col-num text-center fw-bold" :class="{ 'urgent-cell-red': isItemUrgent(item) }">
                             <div class="cell-truncate">{{ (pagination.current_page - 1) * 50 + (idx + 1) }}</div>
@@ -194,10 +193,12 @@
 
                         <!-- 8. СК -->
                         <td class="col-sk text-center">
-                            <span class="badge-sk cell-truncate d-inline-block"
-                                @mouseenter="handleCellMouseEnter($event, item.insurance_company?.name)"
-                                @mouseleave="handleCellMouseLeave">
-                                {{ item.insurance_company?.name || 'ИНГОС' }}
+                            <span class="badge-sk cell-truncate d-inline-block" :style="{
+                                backgroundColor: item.insurance_company?.bg_color || item.insuranceCompany?.bg_color || '#fce7f3',
+                                color: item.insurance_company?.text_color || item.insuranceCompany?.text_color || '#be185d',
+                                border: '1px solid ' + (item.insurance_company?.text_color || item.insuranceCompany?.text_color || '#be185d') + '44'
+                            }">
+                                {{ item.insurance_company?.name || item.insuranceCompany?.name || '—' }}
                             </span>
                         </td>
 
@@ -401,21 +402,17 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 
-// Отдельные компоненты
+// Дочерние компоненты
 import MultiSelectDropdown from '../../components/MultiSelectDropdown.vue';
 import ApplicationLawyerBadge from '../../components/applications/ApplicationLawyerBadge.vue';
 import RegistryMobileCard from '../../components/applications/registry/RegistryMobileCard.vue';
 import RegistryPagination from '../../components/applications/registry/RegistryPagination.vue';
 import RegistryMobileFilterDrawer from '../../components/applications/registry/RegistryMobileFilterDrawer.vue';
 import RegistryTooltip from '../../components/applications/registry/RegistryTooltip.vue';
-
-// Composables
-import { useRegistryFilters } from '../../composables/useRegistryFilters';
-import { useRowStyles } from '../../composables/useRowStyles';
 
 const route = useRoute();
 const router = useRouter();
@@ -429,27 +426,127 @@ const pagination = ref({ current_page: 1, last_page: 1, total: 0 });
 const isMobileFilterOpen = ref(false);
 let timer = null;
 
-// Инициализация composables
-const {
-    options,
-    filters,
-    loadSavedFilters,
-    saveFilters,
-    resetAllFilters,
-    statusOptions,
-    financeStatusOptions,
-    employeeOptions,
-    cityOptions,
-    branchOptions,
-    insuranceOptions,
-    activeFiltersCount,
-} = useRegistryFilters((page) => fetchItems(page));
+// ==========================================
+// 1. ФИЛЬТРЫ И СПРАВОЧНИКИ
+// ==========================================
+const STORAGE_KEY = 'mandarin_global_registry_filters';
 
-const {
-    getFinanceStatusTitle,
-    isItemUrgent,
-    getRowBackgroundStyle,
-} = useRowStyles();
+const options = reactive({
+    statuses: [],
+    finance_statuses: [],
+    employees: [],
+    cities: [],
+    branches: [],
+    insurance_companies: [],
+});
+
+const getInitialFilters = () => ({
+    id: '',
+    status_ids: [],
+    finance_status_ids: [],
+    mrk_ids: [],
+    city_ids: [],
+    insurance_ids: [],
+    branch_ids: [],
+    ub_types: [],
+    sto_name: '',
+    ub_number: '',
+    ClientName: '',
+    ClientPhone: '',
+    CarModel: '',
+    gnz: '',
+    vin: '',
+});
+
+const filters = reactive(getInitialFilters());
+
+const loadSavedFilters = () => {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            Object.assign(filters, getInitialFilters(), parsed);
+        }
+    } catch (e) {
+        console.error('Ошибка чтения фильтров:', e);
+    }
+};
+
+const saveFilters = () => {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(filters));
+    } catch (e) {
+        console.error('Ошибка сохранения фильтров:', e);
+    }
+};
+
+const resetAllFilters = () => {
+    Object.assign(filters, getInitialFilters());
+    try {
+        localStorage.removeItem(STORAGE_KEY);
+    } catch (e) { }
+    fetchItems(1);
+};
+
+const statusOptions = computed(() =>
+    (options.statuses || []).map((s) => ({ value: s.id, label: s.name || `Статус #${s.id}` }))
+);
+const financeStatusOptions = computed(() =>
+    (options.finance_statuses || []).map((f) => ({ value: f.id, label: f.name || `Фин. статус #${f.id}` }))
+);
+const employeeOptions = computed(() =>
+    (options.employees || []).map((e) => ({ value: e.id, label: e.name || `Сотрудник #${e.id}` }))
+);
+const cityOptions = computed(() =>
+    (options.cities || []).map((c) => ({ value: c.id, label: c.name || `Город #${c.id}` }))
+);
+const branchOptions = computed(() =>
+    (options.branches || []).map((b) => ({ value: b.id, label: b.name || `Филиал #${b.id}` }))
+);
+const insuranceOptions = computed(() =>
+    (options.insurance_companies || []).map((i) => ({ value: i.id, label: i.name || `СК #${i.id}` }))
+);
+
+const activeFiltersCount = computed(() => {
+    let count = 0;
+    if (filters.id) count++;
+    if (filters.status_ids?.length) count += filters.status_ids.length;
+    if (filters.finance_status_ids?.length) count += filters.finance_status_ids.length;
+    if (filters.mrk_ids?.length) count += filters.mrk_ids.length;
+    if (filters.city_ids?.length) count += filters.city_ids.length;
+    if (filters.insurance_ids?.length) count += filters.insurance_ids.length;
+    if (filters.branch_ids?.length) count += filters.branch_ids.length;
+    if (filters.ub_types?.length) count += filters.ub_types.length;
+    if (filters.sto_name) count++;
+    if (filters.ub_number) count++;
+    if (filters.ClientName) count++;
+    if (filters.ClientPhone) count++;
+    if (filters.CarModel) count++;
+    if (filters.gnz) count++;
+    if (filters.vin) count++;
+    return count;
+});
+
+// ==========================================
+// 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (ДЛЯ ШАБЛОНА)
+// ==========================================
+const getFinanceStatusTitle = (item) => {
+    if (!item) return '';
+    const raw =
+        item.finance_status_name ||
+        item.finance_status?.name ||
+        item.financeStatus?.name ||
+        item.fin_status?.name ||
+        item.FinStatusName ||
+        item.soglas_title ||
+        '';
+    const trimmed = String(raw).trim();
+    if (!trimmed || trimmed.toLowerCase() === 'не определен' || trimmed.toLowerCase() === 'не определено') {
+        return '';
+    }
+    return trimmed;
+};
+
 const hasActiveFinanceStatus = (item) => {
     if (!item) return false;
     const finId = Number(
@@ -460,18 +557,123 @@ const hasActiveFinanceStatus = (item) => {
         item.financeStatus?.id ||
         0
     );
-    const finName = (
-        item.finance_status_name ||
-        item.finance_status?.name ||
-        item.financeStatus?.name ||
-        item.fin_status?.name ||
-        item.soglas_title ||
-        ''
-    ).trim();
-
-    return finId > 1 || finName.length > 0;
+    const title = getFinanceStatusTitle(item);
+    if (!title) return false;
+    if (finId === 1) return false;
+    return true;
 };
-// Всплывающий тултип
+
+const isItemUrgent = (item) => {
+    if (!item) return false;
+    const isAppArchive = Number(item.id_status || item.status_id || item.status?.id || 0) === 25;
+    const isAppOverdue = !isAppArchive && Boolean(item.app_timer?.is_overdue || item.is_overdue);
+    const isAppUrgent = !isAppArchive && !isAppOverdue && Boolean(
+        item.app_timer?.has_timer &&
+        (item.app_timer?.is_day === 0 || item.app_timer?.is_day === false) &&
+        Number(item.app_timer?.count_hour ?? item.count_hour ?? 0) > 0
+    );
+
+    const finTitle = getFinanceStatusTitle(item).toLowerCase();
+    const isFinPaid = finTitle.includes('оплата получена') || finTitle.includes('оплачен');
+    const isFinOverdue = !isFinPaid && Boolean(item.finance_timer?.is_overdue || item.soglas_overdue);
+    const isFinUrgent = hasActiveFinanceStatus(item) && !isFinPaid && !isFinOverdue && Boolean(
+        item.finance_timer?.has_timer &&
+        (item.finance_timer?.is_day === 0 || item.finance_timer?.is_day === false) &&
+        Number(item.finance_timer?.count_hour_f ?? item.count_hour_f ?? 0) > 0
+    );
+
+    return isAppUrgent || isFinUrgent;
+};
+
+const getRowBackgroundStyle = (item) => {
+    if (!item) return {};
+    const BLUE_COLOR = 'rgba(37, 99, 235, 0.14)';
+    const GREEN_COLOR = 'rgba(22, 163, 74, 0.16)';
+    const YELLOW_COLOR = 'rgba(234, 179, 8, 0.28)';
+    const PASTEL_PINK = 'rgba(254, 226, 226, 0.45)';
+    const OVERDUE_RED = 'rgba(248, 113, 113, 0.38)';
+
+    const isAppArchive = Number(item.id_status || item.status_id || item.status?.id || 0) === 25;
+    const isAppOverdue = !isAppArchive && Boolean(item.app_timer?.is_overdue || item.is_overdue);
+    const isAppUrgent = !isAppArchive && !isAppOverdue && Boolean(
+        item.app_timer?.has_timer && (item.app_timer?.is_day === 0 || item.app_timer?.is_day === false)
+    );
+
+    let appFill = isAppUrgent ? YELLOW_COLOR : BLUE_COLOR;
+    let appBg = '';
+
+    if (isAppArchive) {
+        appBg = `linear-gradient(to right, ${GREEN_COLOR} 0%, ${GREEN_COLOR} 100%)`;
+    } else if (isAppOverdue) {
+        appBg = `linear-gradient(to right, ${OVERDUE_RED} 0%, ${OVERDUE_RED} 100%)`;
+    } else {
+        const appWidth = Math.min(100, Math.max(0, Number(item.app_timer?.percent ?? 0)));
+        appBg = `linear-gradient(to right, ${appFill} 0%, ${appFill} ${appWidth}%, ${PASTEL_PINK} ${appWidth}%, ${PASTEL_PINK} 100%)`;
+    }
+
+    if (!hasActiveFinanceStatus(item)) {
+        return { background: `${appBg} top / 100% 100% no-repeat` };
+    }
+
+    const finTitle = getFinanceStatusTitle(item).toLowerCase();
+    const finId = Number(item.finance_status_id || item.finance_statuses_id || 0);
+    const isFinPaid = finId === 7 || finTitle.includes('оплата получена') || finTitle.includes('оплачен');
+    const isFinOverdue = !isFinPaid && Boolean(item.finance_timer?.is_overdue || item.soglas_overdue);
+    const isFinUrgent = !isFinPaid && !isFinOverdue && Boolean(
+        item.finance_timer?.has_timer && (item.finance_timer?.is_day === 0 || item.finance_timer?.is_day === false)
+    );
+
+    let finFill = isFinUrgent ? YELLOW_COLOR : GREEN_COLOR;
+    let finBg = '';
+
+    if (isFinPaid) {
+        finBg = `linear-gradient(to right, ${GREEN_COLOR} 0%, ${GREEN_COLOR} 100%)`;
+    } else if (isFinOverdue) {
+        finBg = `linear-gradient(to right, ${OVERDUE_RED} 0%, ${OVERDUE_RED} 100%)`;
+    } else {
+        const finWidth = Math.min(100, Math.max(0, Number(item.finance_timer?.percent ?? 0)));
+        finBg = `linear-gradient(to right, ${finFill} 0%, ${finFill} ${finWidth}%, ${PASTEL_PINK} ${finWidth}%, ${PASTEL_PINK} 100%)`;
+    }
+
+    return {
+        background: `
+      ${appBg} top / 100% 50% no-repeat,
+      ${finBg} bottom / 100% 50% no-repeat
+    `,
+    };
+};
+
+const parseGnz = (raw) => {
+    if (!raw) return { number: '', region: '' };
+    let str = String(raw).trim().toUpperCase().replace(/\s+/g, '');
+    const map = { A: 'А', B: 'В', E: 'Е', K: 'К', M: 'М', H: 'Н', O: 'О', P: 'Р', C: 'С', T: 'Т', Y: 'У', X: 'Х' };
+    str = str.replace(/[ABEKMHOPCTYX]/g, (m) => map[m] || m);
+
+    const match = str.match(/^([АВЕКМНОРСТУХ]\d{3}[АВЕКМНОРСТУХ]{2})(\d{2,3})$/);
+    if (match) {
+        const numPart = match[1];
+        return {
+            number: `${numPart[0]} ${numPart.slice(1, 4)} ${numPart.slice(4, 6)}`,
+            region: match[2],
+        };
+    }
+    return { number: String(raw).toUpperCase(), region: '' };
+};
+
+const formatDate = (val) => {
+    if (!val) return '—';
+    const d = new Date(val);
+    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
+const formatMoney = (val) => {
+    const n = parseFloat(val) || 0;
+    return n.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+// ==========================================
+// 3. ТУЛТИП
+// ==========================================
 const tooltip = ref({ visible: false, text: '', x: 0, y: 0 });
 
 const handleCellMouseEnter = (event, fullText) => {
@@ -533,7 +735,9 @@ const handleCellMouseLeave = () => {
     tooltip.value.visible = false;
 };
 
-// Загрузка справочников для селектов
+// ==========================================
+// 4. ЗАГРУЗКА И ДЕЙСТВИЯ
+// ==========================================
 const fetchFilterOptions = async () => {
     try {
         const res = await axios.get('/api/applications/filters');
@@ -550,7 +754,6 @@ const fetchFilterOptions = async () => {
     }
 };
 
-// Загрузка списка дел
 const fetchItems = async (page = 1) => {
     loading.value = true;
     try {
@@ -582,7 +785,7 @@ const fetchItems = async (page = 1) => {
             total: res.data.total || 0,
         };
     } catch (err) {
-        console.error('Ошибка загрузки дел:', err);
+        console.error('Ошибка загрузки списка дел:', err);
     } finally {
         loading.value = false;
     }
@@ -598,42 +801,18 @@ const applyMobileFilters = () => {
     fetchItems(1);
 };
 
-const openApplication = (id) => router.push(`/applications/${id}`);
+const openApplication = (id) => {
+    router.push({
+        path: `/applications/${id}`,
+        query: { from_tab: currentTab.value },
+    });
+};
 
 const moveToTrash = async (item) => {
     if (confirm(`Переместить дело #${item.id} в корзину?`)) {
         await axios.put(`/api/applications/${item.id}`, { id_status: 27 });
         fetchItems(pagination.value.current_page);
     }
-};
-
-const formatDate = (val) => {
-    if (!val) return '—';
-    const d = new Date(val);
-    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-};
-
-const formatMoney = (val) => {
-    const n = parseFloat(val) || 0;
-    return n.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
-
-// Разбор ГРЗ на номер и регион с поддержкой кириллицы/латиницы
-const parseGnz = (raw) => {
-    if (!raw) return { number: '', region: '' };
-    let str = String(raw).trim().toUpperCase().replace(/\s+/g, '');
-    const map = { A: 'А', B: 'В', E: 'Е', K: 'К', M: 'М', H: 'Н', O: 'О', P: 'Р', C: 'С', T: 'Т', Y: 'У', X: 'Х' };
-    str = str.replace(/[ABEKMHOPCTYX]/g, (m) => map[m] || m);
-
-    const match = str.match(/^([АВЕКМНОРСТУХ]\d{3}[АВЕКМНОРСТУХ]{2})(\d{2,3})$/);
-    if (match) {
-        const numPart = match[1];
-        return {
-            number: `${numPart[0]} ${numPart.slice(1, 4)} ${numPart.slice(4, 6)}`,
-            region: match[2],
-        };
-    }
-    return { number: String(raw).toUpperCase(), region: '' };
 };
 
 watch(filters, () => saveFilters(), { deep: true });
@@ -870,9 +1049,11 @@ onMounted(async () => {
     white-space: nowrap !important;
 }
 
+/* Красный индикатор в первой ячейке # для срочных дел */
 .urgent-cell-red {
     background-color: #dc2626 !important;
     color: #ffffff !important;
+    font-weight: 800 !important;
 }
 
 .status-compact-pill {

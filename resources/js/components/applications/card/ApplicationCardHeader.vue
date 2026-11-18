@@ -14,7 +14,18 @@
     </header>
 </template>
 
+
+
 <script setup>
+
+const goBack = () => {
+    const fromTab = route.query.from_tab;
+    if (fromTab) {
+        router.push({ name: fromTab });
+    } else {
+        router.back();
+    }
+};
 defineProps({
     applicationId: [Number, String],
     application: Object,

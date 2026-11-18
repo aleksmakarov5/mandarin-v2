@@ -1,82 +1,92 @@
-// resources/js/composables/useRowStyles.js
-
 export function useRowStyles() {
-    /**
-     * Проверка: осталось менее суток (<= 24 ч) для основного или финансового статуса
-     */
+    const getFinanceStatusTitle = (item) => {
+        const raw =
+            item.finance_status_name ||
+            item.finance_status?.name ||
+            item.financeStatus?.name ||
+            item.fin_status?.name ||
+            item.FinStatusName ||
+            item.soglas_title ||
+            '';
+
+        const trimmed = String(raw).trim();
+        if (!trimmed || trimmed.toLowerCase() === 'не определен' || trimmed.toLowerCase() === 'не определено') {
+            return '';
+        }
+        return trimmed;
+    };
+
+    const hasActiveFinanceStatus = (item) => {
+        const finId = Number(
+            item.finance_status_id ||
+            item.finance_statuses_id ||
+            item.id_finance_status ||
+            item.finance_status?.id ||
+            item.financeStatus?.id ||
+            0
+        );
+        const title = getFinanceStatusTitle(item);
+        if (!title) return false;
+        if (finId === 1) return false;
+        return true;
+    };
+
     const isItemUrgent = (item) => {
-        // 1. Проверяем основной статус дела (исключаем Архив id=25 и просроченные)
         const isAppArchive = Number(item.id_status || item.status_id || item.status?.id || 0) === 25;
         const isAppOverdue = !isAppArchive && Boolean(item.app_timer?.is_overdue || item.is_overdue);
+        const isAppUrgent = !isAppArchive && !isAppOverdue && Boolean(item.app_timer?.has_timer && (item.app_timer?.is_day === false || item.app_timer?.is_day === 0));
 
-        // Менее суток по статусу дела: таймер активен, не просрочен, и режим часов (is_day == 0)
-        const isAppUrgent = !isAppArchive && !isAppOverdue && Boolean(
-            item.app_timer?.has_timer &&
-            (item.app_timer?.is_day === 0 || item.app_timer?.is_day === false) &&
-            Number(item.app_timer?.count_hour ?? item.count_hour ?? 0) > 0
-        );
-
-        // 2. Проверяем финансовый статус
-        const finTitle = String(item.finance_status?.name || item.finance_status_name || item.soglas_title || '').toLowerCase();
+        const finTitle = getFinanceStatusTitle(item).toLowerCase();
         const isFinPaid = finTitle.includes('оплата получена') || finTitle.includes('оплачен');
         const isFinOverdue = !isFinPaid && Boolean(item.finance_timer?.is_overdue || item.soglas_overdue);
-
-        const isFinUrgent = !isFinPaid && !isFinOverdue && Boolean(
-            item.finance_timer?.has_timer &&
-            (item.finance_timer?.is_day === 0 || item.finance_timer?.is_day === false) &&
-            Number(item.finance_timer?.count_hour_f ?? item.count_hour_f ?? 0) > 0
-        );
+        const isFinUrgent = hasActiveFinanceStatus(item) && !isFinPaid && !isFinOverdue && Boolean(item.finance_timer?.has_timer && (item.finance_timer?.is_day === false || item.finance_timer?.is_day === 0));
 
         return isAppUrgent || isFinUrgent;
     };
 
-    /**
-     * Фоновый тулбар с анимацией бегущих полос при срочности < 24ч
-     */
     const getRowBackgroundStyle = (item) => {
-        const BLUE_COLOR = 'rgba(37, 99, 235, 0.14)';   // Синий (дни)
-        const GREEN_COLOR = 'rgba(22, 163, 74, 0.16)';   // Зеленый (фин. статус / оплата)
-        const URGENT_COLOR = 'rgba(245, 158, 11, 0.26)';  // Янтарный для < 24ч
-        const PASTEL_PINK = 'rgba(254, 226, 226, 0.45)'; // Фон свободного поля
-        const OVERDUE_RED = 'rgba(248, 113, 113, 0.38)'; // Просрочено
+        // ВМЕСТО ЖЕЛТОГО — КРАСИВЫЙ НЕЖНО-ГОЛУБОЙ
+        const BLUE_COLOR = 'rgba(56, 189, 248, 0.22)';   // Пастельно-голубой
+        const GREEN_COLOR = 'rgba(34, 197, 94, 0.18)';    // Зеленый (фин. статус / оплата / архив)
+        const PASTEL_PINK = 'rgba(254, 226, 226, 0.45)';  // Пастельно-розовый справа
+        const OVERDUE_RED = 'rgba(248, 113, 113, 0.38)';  // Красный (просрочено)
 
-        const isAppArchive = Number(item.id_status || item.status_id || 0) === 25;
+        // 1. Верхняя полоса: Статус дела (голубой)
+        const isAppArchive = Number(item.id_status || item.status_id || item.status?.id || 0) === 25;
         const isAppOverdue = !isAppArchive && Boolean(item.app_timer?.is_overdue || item.is_overdue);
-        const isAppUrgent = !isAppArchive && !isAppOverdue && item.app_timer?.has_timer && (item.app_timer?.is_day === 0 || item.app_timer?.is_day === false);
 
-        let appFill = isAppUrgent ? URGENT_COLOR : BLUE_COLOR;
         let appBg = '';
-
         if (isAppArchive) {
             appBg = `linear-gradient(to right, ${GREEN_COLOR} 0%, ${GREEN_COLOR} 100%)`;
         } else if (isAppOverdue) {
             appBg = `linear-gradient(to right, ${OVERDUE_RED} 0%, ${OVERDUE_RED} 100%)`;
         } else {
             const appWidth = Math.min(100, Math.max(0, Number(item.app_timer?.percent ?? 0)));
-            appBg = `linear-gradient(to right, ${appFill} 0%, ${appFill} ${appWidth}%, ${PASTEL_PINK} ${appWidth}%, ${PASTEL_PINK} 100%)`;
+            appBg = `linear-gradient(to right, ${BLUE_COLOR} 0%, ${BLUE_COLOR} ${appWidth}%, ${PASTEL_PINK} ${appWidth}%, ${PASTEL_PINK} 100%)`;
         }
 
-        // Если нет активного фин. статуса — 100% высоты
-        const finId = Number(item.finance_status_id || item.id_finance_status || 0);
-        if (finId <= 1 && !item.finance_status_name) {
-            return { background: `${appBg} top / 100% 100% no-repeat` };
+        // 2. Если фин. статус отсутствует — статус дела занимает 100% высоты строки
+        const hasFin = hasActiveFinanceStatus(item);
+        if (!hasFin) {
+            return {
+                background: `${appBg} top / 100% 100% no-repeat`,
+            };
         }
 
-        // Нижняя полоса фин. статуса
-        const isFinPaid = finId === 7;
+        // 3. Нижняя полоса: Фин. статус (зеленый, 50% высоты)
+        const finTitle = getFinanceStatusTitle(item).toLowerCase();
+        const finId = Number(item.finance_status_id || item.finance_statuses_id || 0);
+        const isFinPaid = finId === 7 || finTitle.includes('оплата получена') || finTitle.includes('оплачен');
         const isFinOverdue = !isFinPaid && Boolean(item.finance_timer?.is_overdue || item.soglas_overdue);
-        const isFinUrgent = !isFinPaid && !isFinOverdue && item.finance_timer?.has_timer && (item.finance_timer?.is_day === 0 || item.finance_timer?.is_day === false);
 
-        let finFill = isFinUrgent ? URGENT_COLOR : GREEN_COLOR;
         let finBg = '';
-
         if (isFinPaid) {
             finBg = `linear-gradient(to right, ${GREEN_COLOR} 0%, ${GREEN_COLOR} 100%)`;
         } else if (isFinOverdue) {
             finBg = `linear-gradient(to right, ${OVERDUE_RED} 0%, ${OVERDUE_RED} 100%)`;
         } else {
             const finWidth = Math.min(100, Math.max(0, Number(item.finance_timer?.percent ?? 0)));
-            finBg = `linear-gradient(to right, ${finFill} 0%, ${finFill} ${finWidth}%, ${PASTEL_PINK} ${finWidth}%, ${PASTEL_PINK} 100%)`;
+            finBg = `linear-gradient(to right, ${GREEN_COLOR} 0%, ${GREEN_COLOR} ${finWidth}%, ${PASTEL_PINK} ${finWidth}%, ${PASTEL_PINK} 100%)`;
         }
 
         return {
@@ -88,6 +98,8 @@ export function useRowStyles() {
     };
 
     return {
+        getFinanceStatusTitle,
+        hasActiveFinanceStatus,
         isItemUrgent,
         getRowBackgroundStyle,
     };

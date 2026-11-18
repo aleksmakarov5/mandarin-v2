@@ -24,64 +24,78 @@
             <!-- Скроллируемый список меню -->
             <div class="flex-grow-1 py-2 overflow-auto sidebar-nav-scroll">
                 <div class="nav-section-title">Документооборот</div>
-                <ul class="nav flex-column mb-1">
+                <ul class="nav flex-column mb-2">
+                    <!-- 1. Запросы -->
                     <li class="nav-item">
-                        <router-link to="/requests" class="nav-link justify-content-between" active-class="active"
-                            title="Запросы" @click="closeMobileSidebar">
-                            <div class="d-flex align-items-center">
-                                <i class="bi bi-inbox-fill"></i>
-                                <span class="nav-text">Запросы</span>
-                            </div>
-                            <span v-if="!isCollapsed || isMobileOpen" class="badge rounded-pill badge-count-yellow px-2"
-                                style="font-size: 0.7rem;">12</span>
-                        </router-link>
-                    </li>
-
-                    <li class="nav-item">
-                        <router-link to="/applications" class="nav-link justify-content-between" active-class="active"
-                            title="Направления" @click="closeMobileSidebar">
-                            <div class="d-flex align-items-center">
-                                <i class="bi bi-signpost-2-fill"></i>
-                                <span class="nav-text">Направления</span>
-                            </div>
-                            <div v-if="!isCollapsed || isMobileOpen" class="d-flex gap-1">
-                                <span class="badge rounded-pill badge-count-green px-1"
-                                    style="font-size: 0.65rem;">17</span>
-                                <span class="badge rounded-pill badge-count-yellow px-1"
-                                    style="font-size: 0.65rem;">57</span>
-                            </div>
-                        </router-link>
-                    </li>
-
-                    <li class="nav-item">
-                        <router-link to="/acceptance" class="nav-link" active-class="active" title="Приемка"
+                        <router-link to="/requests" class="nav-link d-flex align-items-center justify-content-between"
+                            :class="{ active: isTabActive('requests') }" title="Запросы (Заявки)"
                             @click="closeMobileSidebar">
-                            <i class="bi bi-clipboard-check-fill"></i>
-                            <span class="nav-text">Приемка</span>
+                            <div class="d-flex align-items-center text-truncate">
+                                <i class="bi bi-inbox-fill me-2 fs-6"></i>
+                                <span v-show="!isCollapsed" class="nav-text">Запросы</span>
+                            </div>
+                            <span v-if="counts.requests > 0"
+                                class="badge rounded-pill bg-warning text-dark badge-count">
+                                {{ counts.requests }}
+                            </span>
                         </router-link>
                     </li>
 
+                    <!-- 2. Направления -->
                     <li class="nav-item">
-                        <router-link to="/archive" class="nav-link justify-content-between" active-class="active"
-                            title="Архив" @click="closeMobileSidebar">
-                            <div class="d-flex align-items-center">
-                                <i class="bi bi-archive-fill"></i>
-                                <span class="nav-text">Архив</span>
+                        <router-link to="/applications"
+                            class="nav-link d-flex align-items-center justify-content-between"
+                            :class="{ active: isTabActive('applications') }" title="Направления в работе"
+                            @click="closeMobileSidebar">
+                            <div class="d-flex align-items-center text-truncate">
+                                <i class="bi bi-signpost-2-fill me-2 fs-6"></i>
+                                <span v-show="!isCollapsed" class="nav-text">Направления</span>
                             </div>
-                            <span v-if="!isCollapsed || isMobileOpen" class="badge rounded-pill badge-count-green px-2"
-                                style="font-size: 0.7rem;">10</span>
+                            <span v-if="counts.applications > 0" class="badge rounded-pill bg-success badge-count">
+                                {{ counts.applications }}
+                            </span>
                         </router-link>
                     </li>
 
+                    <!-- 3. Приемка -->
                     <li class="nav-item">
-                        <router-link to="/trash" class="nav-link justify-content-between" active-class="active"
-                            title="Корзина" @click="closeMobileSidebar">
-                            <div class="d-flex align-items-center">
-                                <i class="bi bi-trash3-fill"></i>
-                                <span class="nav-text">Корзина</span>
+                        <router-link to="/acceptance" class="nav-link d-flex align-items-center justify-content-between"
+                            :class="{ active: isTabActive('acceptance') }" title="Приемка" @click="closeMobileSidebar">
+                            <div class="d-flex align-items-center text-truncate">
+                                <i class="bi bi-clipboard-check-fill me-2 fs-6"></i>
+                                <span v-show="!isCollapsed" class="nav-text">Приемка</span>
                             </div>
-                            <span v-if="!isCollapsed || isMobileOpen" class="badge rounded-pill badge-count-green px-2"
-                                style="font-size: 0.7rem;">21</span>
+                            <span v-if="counts.acceptance > 0" class="badge rounded-pill bg-info text-dark badge-count">
+                                {{ counts.acceptance }}
+                            </span>
+                        </router-link>
+                    </li>
+
+                    <!-- 4. Архив -->
+                    <li class="nav-item">
+                        <router-link to="/archive" class="nav-link d-flex align-items-center justify-content-between"
+                            :class="{ active: isTabActive('archive') }" title="Архив" @click="closeMobileSidebar">
+                            <div class="d-flex align-items-center text-truncate">
+                                <i class="bi bi-archive-fill me-2 fs-6"></i>
+                                <span v-show="!isCollapsed" class="nav-text">Архив</span>
+                            </div>
+                            <span v-if="counts.archive > 0" class="badge rounded-pill bg-secondary badge-count">
+                                {{ counts.archive }}
+                            </span>
+                        </router-link>
+                    </li>
+
+                    <!-- 5. Корзина -->
+                    <li class="nav-item">
+                        <router-link to="/trash" class="nav-link d-flex align-items-center justify-content-between"
+                            :class="{ active: isTabActive('trash') }" title="Корзина" @click="closeMobileSidebar">
+                            <div class="d-flex align-items-center text-truncate">
+                                <i class="bi bi-trash3-fill me-2 fs-6"></i>
+                                <span v-show="!isCollapsed" class="nav-text">Корзина</span>
+                            </div>
+                            <span v-if="counts.trash > 0" class="badge rounded-pill bg-danger badge-count">
+                                {{ counts.trash }}
+                            </span>
                         </router-link>
                     </li>
 
@@ -254,17 +268,50 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import MandarinLogo from '../components/MandarinLogo.vue';
-import HeaderClock from '../components/HeaderClock.vue';
-
+const counts = ref({
+    requests: 0,
+    applications: 0,
+    acceptance: 0,
+    archive: 0,
+    trash: 0,
+});
+// 1. Инициализируем route и router в самом начале:
+const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
 const isCollapsed = ref(localStorage.getItem('sidebar_collapsed') === 'true');
 const isMobileOpen = ref(false);
+
+// 2. Логика подсветки активной вкладки:
+const activeRegistryTab = computed(() => {
+    if (!route) return null;
+
+    const directTabs = ['requests', 'applications', 'acceptance', 'archive', 'trash'];
+    if (directTabs.includes(route.name)) {
+        return route.name;
+    }
+
+    if (route.path && route.path.startsWith('/applications/') && route.params?.id) {
+        if (route.query?.from_tab) {
+            return String(route.query.from_tab);
+        }
+        const currentAppStatusId = Number(route.query?.status_id || 0);
+        if (currentAppStatusId === 25) return 'archive';
+        if (currentAppStatusId === 27) return 'trash';
+        return 'applications';
+    }
+
+    return null;
+});
+
+const isTabActive = (tabName) => {
+    return activeRegistryTab.value === tabName;
+};
 
 const handleToggleMenu = () => {
     if (window.innerWidth < 768) {

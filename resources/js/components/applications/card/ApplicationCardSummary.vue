@@ -48,8 +48,12 @@
             <!-- 3. Страховая, Тип убытка, ДТП и Дата создания -->
             <div class="col-12 col-md-6 col-lg-3">
                 <div class="summary-primary">
-                    <i class="bi bi-shield-check text-warning"></i>
-                    <span class="text-truncate" :title="insuranceName">{{ insuranceName }}</span>
+                    <i
+                        class="bi bi-shield-check text-warning"></i><!-- Название СК с темой (цветом фона и текста из базы данных) -->
+                    <span class="badge badge-insurance-themed text-truncate" :style="insuranceBadgeStyle"
+                        :title="insuranceName">
+                        {{ insuranceName }}
+                    </span>
                     <!-- Бейдж типа убытка -->
                     <span v-if="ubTypeText" class="badge ms-2" :class="ubTypeBadgeClass">
                         {{ ubTypeText }}
@@ -84,12 +88,52 @@
 import { computed } from 'vue';
 import ApplicationStatusChanger from './ApplicationStatusChanger.vue';
 
+// Находим объект текущей СК из справочника (или берём из props.application)
+const currentInsuranceObj = computed(() => {
+    const icId = Number(
+        props.application?.id_insuranceCompany ||
+        props.application?.insurance_company_id ||
+        props.application?.insurance_company?.id ||
+        0
+    );
+
+    if (icId && Array.isArray(props.insuranceCompanies)) {
+        const found = props.insuranceCompanies.find((i) => Number(i.id) === icId);
+        if (found) return found;
+    }
+
+    return props.application?.insurance_company || props.application?.insuranceCompany || null;
+});
+
+// Название СК
+const insuranceName = computed(() => {
+    return (
+        currentInsuranceObj.value?.name ||
+        props.insuranceName ||
+        props.application?.insurance_company?.name ||
+        'Страховая не выбрана'
+    );
+});
+
+// Вычисление стиля темы СК (bg_color и text_color из БД с безопасным фоллбеком)
+const insuranceBadgeStyle = computed(() => {
+    const bg = currentInsuranceObj.value?.bg_color || '#fce7f3';
+    const text = currentInsuranceObj.value?.text_color || '#be185d';
+
+    return {
+        backgroundColor: bg.startsWith('#') || bg.startsWith('rgb') ? bg : `#${bg}`,
+        color: text.startsWith('#') || text.startsWith('rgb') ? text : `#${text}`,
+        border: '1px solid rgba(0, 0, 0, 0.12)',
+    };
+});
+
 const props = defineProps({
     application: { type: Object, default: () => ({}) },
     currentStatus: { type: Object, default: null },
     allStatuses: { type: Array, default: () => [] },
     allFinanceStatuses: { type: Array, default: () => [] },
     insuranceName: { type: String, default: 'Страховая компания не выбрана' },
+    insuranceCompanies: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(['status-change', 'finance-status-change']);
@@ -341,5 +385,16 @@ const plateParts = computed(() => {
     .application-card-summary {
         padding: 6px 10px;
     }
+}
+
+.badge-insurance-themed {
+    font-size: 0.70rem !important;
+    font-weight: 700 !important;
+    padding: 2px 7px !important;
+    border-radius: 4px !important;
+    max-width: 140px;
+    display: inline-block;
+    vertical-align: middle;
+    letter-spacing: 0.2px;
 }
 </style>

@@ -6,63 +6,116 @@ use App\Http\Controllers\Controller;
 use App\Models\InsuranceCompany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class InsuranceCompanyController extends Controller
 {
-    public function index(Request $request): JsonResponse
+    public function index(): JsonResponse
     {
-        $query = InsuranceCompany::query();
+        $companies = InsuranceCompany::query()
+            ->orderBy('id')
+            ->get();
 
-        if ($request->filled('search')) {
-            $s = trim($request->search);
-            $query->where('name', 'LIKE', "%{$s}%")
-                ->orWhere('curator', 'LIKE', "%{$s}%")
-                ->orWhere('email', 'LIKE', "%{$s}%")
-                ->orWhere('phone', 'LIKE', "%{$s}%");
-        }
-
-        $items = $query->orderBy('name')->get();
-        return response()->json($items);
+        return response()->json([
+            'data' => $companies,
+        ]);
     }
 
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
+            'bg_color' => 'nullable|string|max:50',
+            'text_color' => 'nullable|string|max:50',
             'curator' => 'nullable|string|max:255',
+            'manager' => 'nullable|string|max:255',
             'phone' => 'nullable|string|max:50',
             'email' => 'nullable|email|max:255',
             'address' => 'nullable|string|max:500',
         ]);
 
-        $item = InsuranceCompany::create($validated);
-        return response()->json($item, 201);
-    }
+        $columns = Schema::getColumnListing('insurance_companies');
+        $data = [];
 
-    public function show(int $id): JsonResponse
-    {
-        return response()->json(InsuranceCompany::findOrFail($id));
+        // Базовые поля
+        if (in_array('name', $columns, true))
+            $data['name'] = $validated['name'];
+        if (in_array('bg_color', $columns, true))
+            $data['bg_color'] = $validated['bg_color'] ?? '#fce7f3';
+        if (in_array('text_color', $columns, true))
+            $data['text_color'] = $validated['text_color'] ?? '#be185d';
+        if (in_array('phone', $columns, true))
+            $data['phone'] = $validated['phone'] ?? null;
+        if (in_array('email', $columns, true))
+            $data['email'] = $validated['email'] ?? null;
+        if (in_array('address', $columns, true))
+            $data['address'] = $validated['address'] ?? null;
+
+        // Куратор / Менеджер (поддержка обоих вариантов)
+        $curatorValue = $validated['curator'] ?? $validated['manager'] ?? null;
+        if (in_array('curator', $columns, true)) {
+            $data['curator'] = $curatorValue;
+        } elseif (in_array('manager', $columns, true)) {
+            $data['manager'] = $curatorValue;
+        }
+
+        $company = InsuranceCompany::create($data);
+
+        return response()->json([
+            'message' => 'Страховая компания создана',
+            'data' => $company,
+        ], 201);
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $item = InsuranceCompany::findOrFail($id);
+        $company = InsuranceCompany::findOrFail($id);
 
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'sometimes|required|string|max:255',
+            'bg_color' => 'nullable|string|max:50',
+            'text_color' => 'nullable|string|max:50',
             'curator' => 'nullable|string|max:255',
+            'manager' => 'nullable|string|max:255',
             'phone' => 'nullable|string|max:50',
             'email' => 'nullable|email|max:255',
             'address' => 'nullable|string|max:500',
         ]);
 
-        $item->update($validated);
-        return response()->json($item);
+        $columns = Schema::getColumnListing('insurance_companies');
+        $data = [];
+
+        foreach (['name', 'bg_color', 'text_color', 'phone', 'email', 'address'] as $col) {
+            if (array_key_exists($col, $validated) && in_array($col, $columns, true)) {
+                $data[$col] = $validated[$col];
+            }
+        }
+
+        // Поддержка куратора/менеджера
+        if (array_key_exists('curator', $validated) || array_key_exists('manager', $validated)) {
+            $curatorValue = $validated['curator'] ?? $validated['manager'] ?? null;
+            if (in_array('curator', $columns, true)) {
+                $data['curator'] = $curatorValue;
+            } elseif (in_array('manager', $columns, true)) {
+                $data['manager'] = $curatorValue;
+            }
+        }
+
+        $company->update($data);
+
+        return response()->json([
+            'message' => 'Страховая компания обновлена',
+            'data' => $company,
+        ]);
     }
 
     public function destroy(int $id): JsonResponse
     {
-        InsuranceCompany::findOrFail($id)->delete();
-        return response()->json(['message' => 'Страховая компания удалена']);
+        $company = InsuranceCompany::findOrFail($id);
+        $company->delete();
+
+        return response()->json([
+            'message' => 'Страховая компания удалена',
+        ]);
     }
 }

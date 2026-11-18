@@ -11,29 +11,34 @@ class InsuranceCompany extends Model
 {
     use HasFactory;
 
+    protected $table = 'insurance_companies';
+
     protected $fillable = [
         'name',
-        'email',
+        'bg_color',
+        'text_color',
+        'curator',
         'manager',
         'phone',
+        'email',
         'address',
         'our_company_id',
         'legal_entity_id',
-        'theme'
+        'theme',
     ];
+
+    public function applications(): HasMany
+    {
+        return $this->hasMany(Application::class, 'id_insuranceCompany');
+    }
 
     public function ourCompany(): BelongsTo
     {
-        return $this->belongsTo(OurCompany::class);
+        return $this->belongsTo(OurCompany::class, 'our_company_id');
     }
 
     public function legalEntity(): BelongsTo
     {
-        return $this->belongsTo(LegalEntity::class);
-    }
-
-    public function applications(): HasMany
-    {
-        return $this->hasMany(Application::class);
+        return $this->belongsTo(LegalEntity::class, 'legal_entity_id');
     }
 }
