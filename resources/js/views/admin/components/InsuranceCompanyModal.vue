@@ -1,54 +1,57 @@
 <template>
-    <div class="modal fade" id="insuranceCompanyModal" tabindex="-1" ref="modalRef">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-light border-bottom py-3">
-                    <h5 class="modal-title fw-bold text-dark">
-                        <i class="bi me-2 text-primary"
-                            :class="isEdit ? 'bi-pencil-square' : 'bi-building-fill-add'"></i>
-                        {{ isEdit ? 'Редактировать страховую' : 'Новая страховая компания' }}
-                    </h5>
-                    <button type="button" class="btn-close" @click="closeModal"></button>
-                </div>
-                <form @submit.prevent="handleSubmit">
-                    <div class="modal-body p-4">
-                        <div class="row g-3">
-                            <div class="col-12">
-                                <label class="form-label small fw-semibold text-muted">Наименование СК *</label>
-                                <input v-model="form.name" type="text" class="form-control"
-                                    placeholder="ВСК, Ингосстрах, РЕСО..." required />
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label small fw-semibold text-muted">ФИО Куратора</label>
-                                <input v-model="form.curator" type="text" class="form-control"
-                                    placeholder="Петров Алексей" />
-                            </div>
-                            <div class="col-12 col-md-6">
-                                <label class="form-label small fw-semibold text-muted">Телефон</label>
-                                <input v-model="form.phone" type="text" class="form-control" />
-                            </div>
-                            <div class="col-12 col-md-6">
-                                <label class="form-label small fw-semibold text-muted">Email</label>
-                                <input v-model="form.email" type="email" class="form-control" />
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label small fw-semibold text-muted">Адрес</label>
-                                <input v-model="form.address" type="text" class="form-control" />
+    <Teleport to="body">
+
+        <div class="modal fade" id="insuranceCompanyModal" tabindex="-1" ref="modalRef">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow-lg">
+                    <div class="modal-header bg-light border-bottom py-3">
+                        <h5 class="modal-title fw-bold text-dark">
+                            <i class="bi me-2 text-primary"
+                                :class="isEdit ? 'bi-pencil-square' : 'bi-building-fill-add'"></i>
+                            {{ isEdit ? 'Редактировать страховую' : 'Новая страховая компания' }}
+                        </h5>
+                        <button type="button" class="btn-close" @click="closeModal"></button>
+                    </div>
+                    <form @submit.prevent="handleSubmit">
+                        <div class="modal-body p-4">
+                            <div class="row g-3">
+                                <div class="col-12">
+                                    <label class="form-label small fw-semibold text-muted">Наименование СК *</label>
+                                    <input v-model="form.name" type="text" class="form-control"
+                                        placeholder="ВСК, Ингосстрах, РЕСО..." required />
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label small fw-semibold text-muted">ФИО Куратора</label>
+                                    <input v-model="form.curator" type="text" class="form-control"
+                                        placeholder="Петров Алексей" />
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small fw-semibold text-muted">Телефон</label>
+                                    <input v-model="form.phone" type="text" class="form-control" />
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small fw-semibold text-muted">Email</label>
+                                    <input v-model="form.email" type="email" class="form-control" />
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label small fw-semibold text-muted">Адрес</label>
+                                    <input v-model="form.address" type="text" class="form-control" />
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div class="modal-footer bg-light border-top py-2 px-4 d-flex justify-content-between">
-                        <button type="button" class="btn btn-outline-secondary btn-sm"
-                            @click="closeModal">Отмена</button>
-                        <button type="submit" class="btn btn-primary btn-sm px-4 fw-semibold" :disabled="loading">
-                            <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>
-                            {{ isEdit ? 'Сохранить' : 'Создать' }}
-                        </button>
-                    </div>
-                </form>
+                        <div class="modal-footer bg-light border-top py-2 px-4 d-flex justify-content-between">
+                            <button type="button" class="btn btn-outline-secondary btn-sm"
+                                @click="closeModal">Отмена</button>
+                            <button type="submit" class="btn btn-primary btn-sm px-4 fw-semibold" :disabled="loading">
+                                <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>
+                                {{ isEdit ? 'Сохранить' : 'Создать' }}
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
-    </div>
+    </Teleport>
 </template>
 
 <script setup>

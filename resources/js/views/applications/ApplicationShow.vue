@@ -3,10 +3,19 @@
         <ApplicationCardHeader :application-id="applicationId" :application="cardData" :status="currentStatus"
             :saving="saving" :show-save="canSaveActiveModule" @back="goBack" @save="saveActiveModule" />
 
+        <!-- Краткая сводка (Summary) со статусами и тайм-барами -->
         <ApplicationCardSummary :application="cardData" :insurance-name="currentInsuranceName"
             :current-status="currentStatus" :all-statuses="options.statuses"
             :all-finance-statuses="options.finance_statuses" @status-change="onStatusChanged"
             @finance-status-change="onFinanceStatusChanged" />
+
+
+        <!-- 2. ДВЕ ПОЛОСЫ ТАЙМЕРОВ (ШИРИНА 100%, ТОЛЩИНА 2 ММ) -->
+        <ApplicationDoubleProgressBar v-if="application?.id || cardData?.id"
+            :app-timer="application?.app_timer || cardData?.app_timer || {}"
+            :finance-timer="application?.finance_timer || cardData?.finance_timer || {}"
+            :finance-status-id="application?.finance_status_id || cardData?.finance_status_id" />
+
 
         <ApplicationCardMenu v-if="hasValidApplicationId" :application-id="applicationId" />
 
@@ -42,12 +51,10 @@ import {
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 
-import ApplicationCardHeader
-    from '../../components/applications/card/ApplicationCardHeader.vue';
-import ApplicationCardSummary
-    from '../../components/applications/card/ApplicationCardSummary.vue';
-import ApplicationCardMenu
-    from '../../components/applications/card/ApplicationCardMenu.vue';// Путь к новому файлу
+import ApplicationCardHeader from '../../components/applications/card/ApplicationCardHeader.vue';
+import ApplicationCardSummary from '../../components/applications/card/ApplicationCardSummary.vue';
+import ApplicationCardMenu from '../../components/applications/card/ApplicationCardMenu.vue';
+import ApplicationDoubleProgressBar from '../../components/applications/card/ApplicationDoubleProgressBar.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -57,58 +64,46 @@ const cardData = ref({});
 const saving = ref(false);
 const moduleError = ref('');
 
+// Справочники
 const options = reactive({
     statuses: [],
-    finance_statuses: [], // ОБЯЗАТЕЛЬНО добавь это поле
-    branches: [],
+    finance_statuses: [], // ОБЯЗАТЕЛЬНО!
     insurance_companies: [],
-    services: [],
-    cities: [],
 });
 
 const applicationId = computed(() => Number(route.params.id));
 
 const hasValidApplicationId = computed(() => (
-    Number.isInteger(applicationId.value)
-    && applicationId.value > 0
+    Number.isInteger(applicationId.value) && applicationId.value > 0
 ));
 
 const canSaveActiveModule = computed(() => (
-    route.meta.cardModule === 'general'
+    route.meta?.cardModule === 'general'
 ));
 
+// Текущий статус дела для Changers
 const currentStatus = computed(() => {
-    const statusId = Number(
-        cardData.value.id_status ?? cardData.value.status_id
-    );
-
-    return options.statuses.find(
-        (status) => Number(status.id) === statusId
-    ) || cardData.value.status || null;
-});
-
-const currentInsuranceName = computed(() => {
-    const companyId = Number(cardData.value.id_insuranceCompany);
-
-    const company = options.insurance_companies.find(
-        (item) => Number(item.id) === companyId
-    );
-
-    return company?.name
-        || cardData.value.insurance_company?.name
-        || 'Страховая компания не выбрана';
-});
-
-function syncCardData(data) {
-    if (!data) {
-        return;
+    const statusId = Number(cardData.value.id_status ?? cardData.value.status_id);
+    if (!statusId || !options.statuses.length) {
+        return cardData.value.status || null;
     }
+    return options.statuses.find((s) => Number(s.id) === statusId) || cardData.value.status || null;
+});
 
+// Название страховой компании
+const currentInsuranceName = computed(() => {
+    const companyId = Number(cardData.value.id_insuranceCompany ?? cardData.value.insurance_company_id);
+    const company = options.insurance_companies.find((item) => Number(item.id) === companyId);
+    return company?.name || cardData.value.insurance_company?.name || 'Страховая компания не выбрана';
+});
+
+// Синхронизация данных от табов
+function syncCardData(data) {
+    if (!data) return;
     cardData.value = {
         ...cardData.value,
         ...data,
     };
-
     moduleError.value = '';
 }
 
@@ -118,43 +113,106 @@ function handleModuleError(error) {
         : error?.message || 'Ошибка работы модуля карточки.';
 }
 
-async function saveActiveModule() {
-    if (
-        saving.value
-        || !canSaveActiveModule.value
-        || typeof activeModule.value?.save !== 'function'
-    ) {
-        return false;
+// Загрузка первичных данных дела прямо в родителе (чтобы Summary сразу заполнился)
+async function loadApplicationData() {
+    if (!hasValidApplicationId.value) return;
+    try {
+        const res = await axios.get(`/api/applications/${applicationId.value}`);
+        const data = res.data?.data || res.data || {};
+        syncCardData(data);
+    } catch (err) {
+        console.error('Ошибка загрузки данных дела в ApplicationShow:', err);
+
+        if (err.response?.status === 403) {
+            alert('Доступ запрещен: дело относится к другому филиалу.');
+            router.push('/requests'); // или router.push('/applications')
+        } else if (err.response?.status === 404) {
+            alert('Дело с таким номером не найдено.');
+            router.push('/requests');
+        }
+    }
+}
+
+// Загрузка справочников (статусы, фин. статусы, СК)
+async function loadCardOptions() {
+    try {
+        const res = await axios.get('/api/applications/general-options');
+        const data = res.data || {};
+
+        options.statuses = data.statuses || [];
+        options.finance_statuses = data.finance_statuses || [];
+        options.insurance_companies = data.insurance_companies || [];
+    } catch (error) {
+        console.error('Не удалось загрузить справочники Header/Summary:', error);
+    }
+}
+
+// Обработчики смены статусов
+async function onStatusChanged(newStatus) {
+    if (!newStatus?.id || !applicationId.value) return;
+
+    const prevId = cardData.value.id_status || cardData.value.status_id;
+    if ('id_status' in cardData.value) {
+        cardData.value.id_status = newStatus.id;
+    } else {
+        cardData.value.status_id = newStatus.id;
     }
 
+    try {
+        await axios.patch(`/api/applications/${applicationId.value}/status`, {
+            status_id: newStatus.id,
+        });
+        // При успехе перезапрашиваем актуальное дело (чтобы обновились таймеры)
+        loadApplicationData();
+    } catch (err) {
+        console.error('Ошибка смены статуса:', err);
+        if ('id_status' in cardData.value) {
+            cardData.value.id_status = prevId;
+        } else {
+            cardData.value.status_id = prevId;
+        }
+    }
+}
+
+async function onFinanceStatusChanged(newFinanceStatus) {
+    if (!newFinanceStatus?.id || !applicationId.value) return;
+
+    const prevId = cardData.value.finance_status_id || cardData.value.id_finance_status;
+    if ('id_finance_status' in cardData.value) {
+        cardData.value.id_finance_status = newFinanceStatus.id;
+    } else {
+        cardData.value.finance_status_id = newFinanceStatus.id;
+    }
+
+    try {
+        await axios.patch(`/api/applications/${applicationId.value}/finance-status`, {
+            finance_status_id: newFinanceStatus.id,
+        });
+        loadApplicationData();
+    } catch (err) {
+        console.error('Ошибка смены фин. статуса:', err);
+        if ('id_finance_status' in cardData.value) {
+            cardData.value.id_finance_status = prevId;
+        } else {
+            cardData.value.finance_status_id = prevId;
+        }
+    }
+}
+
+async function saveActiveModule() {
+    if (saving.value || !canSaveActiveModule.value || typeof activeModule.value?.save !== 'function') {
+        return false;
+    }
     saving.value = true;
     moduleError.value = '';
-
     try {
         return await activeModule.value.save();
     } catch (error) {
-        console.error('Ошибка сохранения активного модуля', error);
+        console.error('Ошибка сохранения активного модуля:', error);
         handleModuleError(error);
         return false;
     } finally {
         saving.value = false;
-    }
-}
-
-async function loadCardOptions() {
-    try {
-        const { data } = await axios.get('/api/applications/general-options'); // или твой эндпоинт options
-
-        options.statuses = data.statuses || [];
-        // Присваиваем массив финансовых статусов:
-        options.finance_statuses = data.finance_statuses || [];
-        options.branches = data.branches || [];
-        options.insurance_companies = data.insurance_companies || [];
-        options.services = data.services || [];
-
-        console.log('Загруженные фин. статусы:', options.finance_statuses); // ДЕБАГ-ЛОГ
-    } catch (error) {
-        console.error('Ошибка загрузки опций карточки:', error);
     }
 }
 
@@ -163,10 +221,7 @@ function goBack() {
 }
 
 function handleKeyboard(event) {
-    if (
-        (event.ctrlKey || event.metaKey)
-        && event.key.toLowerCase() === 's'
-    ) {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
         saveActiveModule();
     }
@@ -175,10 +230,12 @@ function handleKeyboard(event) {
 watch(applicationId, () => {
     cardData.value = {};
     moduleError.value = '';
+    loadApplicationData();
 });
 
 onMounted(() => {
     loadCardOptions();
+    loadApplicationData();
     window.addEventListener('keydown', handleKeyboard);
 });
 

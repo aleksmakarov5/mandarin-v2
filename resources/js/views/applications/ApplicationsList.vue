@@ -1,16 +1,18 @@
 <template>
     <div class="applications-container">
-        <!-- 1. ДЕСКТОПНЫЙ РЕЖИМ (ФИКСИРОВАННАЯ ЭЛЕГАНТНАЯ ТАБЛИЦА) -->
-        <div class="applications-table-wrapper d-none d-lg-block" :class="{ 'fit-screen': !hasFinancialColumns }">
+        <!-- 1. ДЕСКТОПНЫЙ РЕЖИМ (ТАБЛИЦА) -->
+        <div class="applications-table-wrapper d-none d-lg-block"
+            :class="{ 'fit-screen': currentTab !== 'applications' && currentTab !== 'archive' }">
             <table class="table table-bordered table-mandarin mb-0 align-middle"
-                :class="{ 'table-fit': !hasFinancialColumns }">
+                :class="{ 'table-fit': currentTab !== 'applications' && currentTab !== 'archive' }">
                 <thead>
                     <!-- 1 СТРОКА: ЗАГОЛОВКИ -->
                     <tr class="header-blue">
                         <th class="col-num text-center">#</th>
                         <th class="col-dog text-center">Дог</th>
                         <th class="col-status text-center">Статус</th>
-                        <th v-if="hasFinancialColumns" class="col-soglas text-center">Согл/Опл</th>
+                        <!-- 3. СТОЛБЕЦ СОГЛ/ОПЛ ТОЛЬКО ВО ВКЛАДКЕ НАПРАВЛЕНИЯ -->
+                        <th v-if="currentTab === 'applications'" class="col-soglas text-center">Согл/Опл</th>
                         <th class="col-id text-center">#</th>
                         <th class="col-mrk">МРК</th>
                         <th class="col-city">Город</th>
@@ -21,12 +23,12 @@
                         <th class="col-client">Клиент</th>
                         <th class="col-phone">Телефон</th>
                         <th class="col-car">Авто</th>
-                        <th class="col-gnz text-center">ГРЗ</th>
+                        <th class="col-gnz">ГРЗ</th>
                         <th class="col-date text-center">Дата</th>
                         <th class="col-type">Тип</th>
                         <th class="col-stoa">СТОА</th>
 
-                        <!-- ФИНАНСОВЫЕ КОЛОНКИ (в Направлениях и Архиве) -->
+                        <!-- Финансовые столбцы в Направлениях и Архиве -->
                         <template v-if="hasFinancialColumns">
                             <th class="col-fin text-end">Сумма СК</th>
                             <th class="col-fin text-end">Сумма З/Ч</th>
@@ -41,13 +43,13 @@
                         <th class="col-vin">VIN</th>
                     </tr>
 
-                    <!-- 2 СТРОКА: ИНПУТЫ И МУЛЬТИСЕЛЕКТЫ -->
+                    <!-- 2 СТРОКА: ФИЛЬТРЫ -->
                     <tr class="header-filters">
-                        <!-- КНОПКА ПОЛНОГО СБРОСА ВСЕХ ФИЛЬТРОВ -->
                         <th class="col-num text-center p-0">
-                            <button type="button" class="btn-reset-filters" @click="resetAllFilters"
-                                title="Сбросить все примененные фильтры">
-                                <i class="bi bi-x-circle-fill" style="font-size: 0.8rem;"></i>
+                            <button class="btn btn-sm btn-link text-white p-0"
+                                style="font-size: 0.72rem; text-decoration: none;" @click="resetAllFilters"
+                                title="Сбросить все фильтры">
+                                <i class="bi bi-x-circle-fill"></i>
                             </button>
                         </th>
                         <th class="col-dog"></th>
@@ -55,7 +57,12 @@
                             <MultiSelectDropdown id="f-status" placeholder="Статус" :options="statusOptions"
                                 v-model="filters.status_ids" @change="fetchItems(1)" min-width="190px" />
                         </th>
-                        <th v-if="hasFinancialColumns" class="col-soglas"></th>
+                        <!-- ФИЛЬТР СОГЛ/ОПЛ ТОЛЬКО ВО ВКЛАДКЕ НАПРАВЛЕНИЯ -->
+                        <th v-if="currentTab === 'applications'" class="col-soglas">
+                            <MultiSelectDropdown id="f-fin-status" placeholder="Согл/Опл"
+                                :options="financeStatusOptions" v-model="filters.finance_status_ids"
+                                @change="fetchItems(1)" min-width="190px" />
+                        </th>
                         <th class="col-id">
                             <input v-model="filters.id" @input="debounceFetch" type="text"
                                 class="form-control-table text-center" />
@@ -94,8 +101,8 @@
                                 class="form-control-table" placeholder="Авто" />
                         </th>
                         <th class="col-gnz">
-                            <input v-model="filters.gnz" @input="debounceFetch" type="text"
-                                class="form-control-table text-center" placeholder="ГРЗ" />
+                            <input v-model="filters.gnz" @input="debounceFetch" type="text" class="form-control-table"
+                                placeholder="ГРЗ" />
                         </th>
                         <th class="col-date"></th>
                         <th class="col-type">
@@ -125,11 +132,12 @@
                         </th>
                     </tr>
                 </thead>
+
                 <tbody>
                     <tr v-for="(item, idx) in items" :key="item.id" class="data-row"
-                        :class="{ 'row-overdue': item.is_overdue }" @click="openApplication(item.id)">
-                        <!-- 1. Индекс строки -->
-                        <td class="col-num text-center fw-bold">
+                        :style="getRowBackgroundStyle(item)" @click="openApplication(item.id)">
+                        <!-- 1. Индекс (#) с ярко-красной заливкой при срочности (< 24ч) -->
+                        <td class="col-num text-center fw-bold" :class="{ 'urgent-cell-red': isItemUrgent(item) }">
                             <div class="cell-truncate">{{ (pagination.current_page - 1) * 50 + (idx + 1) }}</div>
                         </td>
 
@@ -139,31 +147,29 @@
                             <span v-else class="dog-badge dog-no">нет</span>
                         </td>
 
-                        <!-- 3. Статус + таймер -->
-                        <td class="col-status status-cell text-center p-1">
-                            <div class="status-title-box cell-truncate" :style="{
-                                backgroundColor: item.status?.bg_color || '#fef08a',
-                                color: item.status?.text_color || '#000000',
-                            }" @mouseenter="handleCellMouseEnter($event, item.status?.name)"
+                        <!-- 3. СТАТУС ДЕЛА -->
+                        <td class="col-status text-center p-1">
+                            <div class="status-compact-pill cell-truncate" :style="{
+                                backgroundColor: item.status?.bg_color || item.status_theme || '#fef08a',
+                                color: item.status?.text_color || '#1e293b',
+                            }" @mouseenter="handleStatusMouseEnter($event, item, 'app')"
                                 @mouseleave="handleCellMouseLeave">
-                                {{ item.status?.name || 'Без статуса' }}
-                            </div>
-                            <div class="status-time-box cell-truncate" :class="{ 'time-overdue': item.is_overdue }">
-                                {{ item.time_status_text }}
+                                {{ item.status?.name || item.StatusName || 'Без статуса' }}
                             </div>
                         </td>
 
-                        <!-- 4. Согл/Опл -->
-                        <td class="col-soglas status-cell text-center p-1" v-if="hasFinancialColumns">
-                            <div v-if="item.soglas_title" class="soglas-title-box cell-truncate"
-                                @mouseenter="handleCellMouseEnter($event, item.soglas_title)"
+                        <!-- 4. СОГЛ/ОПЛ (ФИН. СТАТУС ТОЛЬКО В НАПРАВЛЕНИЯХ) -->
+                        <td v-if="currentTab === 'applications'" class="col-soglas text-center p-1">
+                            <!-- 1. Если фин. статус задан и НЕ "Не определен" — выводим плашку -->
+                            <div v-if="hasActiveFinanceStatus(item)" class="status-compact-pill cell-truncate" :style="{
+                                backgroundColor: item.finance_status?.bg_color || item.financeStatus?.bg_color || item.soglas_bg || '#dcfce7',
+                                color: item.finance_status?.text_color || item.financeStatus?.text_color || item.soglas_color || '#15803d',
+                            }" @mouseenter="handleStatusMouseEnter($event, item, 'fin')"
                                 @mouseleave="handleCellMouseLeave">
-                                {{ item.soglas_title }}
+                                {{ getFinanceStatusTitle(item) }}
                             </div>
-                            <div v-if="item.soglas_time_text" class="soglas-time-box cell-truncate"
-                                :class="{ 'time-overdue': item.soglas_overdue }">
-                                {{ item.soglas_time_text }}
-                            </div>
+                            <!-- Если "Не определен" — ставим серый прочерк -->
+                            <span v-else class="text-muted small">—</span>
                         </td>
 
                         <!-- 5. # ID -->
@@ -206,18 +212,10 @@
                             </span>
                         </td>
 
-                        <!-- 10. Юрист -->
+                        <!-- 10. ЮРИСТ (4. Фамилия, зеленый/красный бейдж, прочерк) -->
                         <td class="col-lawyer text-center" @click.stop>
-                            <!-- Если юрист назначен: цветная плашка с ФИО -->
-                            <span v-if="item.lawyer && item.lawyer.id" class="badge-lawyer cell-truncate d-inline-block"
-                                :class="item.lawyer.is_cooperating ? 'badge-lawyer-coop' : 'badge-lawyer-no-coop'"
-                                @mouseenter="handleCellMouseEnter($event, (item.lawyer.is_cooperating ? 'Сотрудничает: ' : 'НЕ сотрудничает: ') + item.lawyer.name + (item.lawyer.phone ? ' (' + item.lawyer.phone + ')' : ''))"
-                                @mouseleave="handleCellMouseLeave">
-                                {{ item.lawyer.name }}
-                            </span>
-
-                            <!-- Если юрист не назначен -->
-                            <span v-else class="text-muted" style="font-size: 0.65rem;">—</span>
+                            <ApplicationLawyerBadge :item="item" @hover="handleCellMouseEnter"
+                                @leave="handleCellMouseLeave" />
                         </td>
 
                         <!-- 11. № убытка -->
@@ -238,13 +236,14 @@
                             </div>
                         </td>
 
-                        <!-- 13. Телефон -->
-                        <td class="col-phone">
-                            <div class="cell-truncate font-monospace" style="color: #2563eb; font-weight: 500;"
-                                @mouseenter="handleCellMouseEnter($event, item.ClientPhone)"
-                                @mouseleave="handleCellMouseLeave">
-                                {{ item.ClientPhone || '—' }}
-                            </div>
+                        <!-- Телефон (всегда целиком) -->
+                        <td class="col-phone text-nowrap">
+                            <a v-if="item.ClientPhone" :href="'tel:' + item.ClientPhone"
+                                class="text-decoration-none text-dark fw-medium text-nowrap"
+                                style="font-size: 0.72rem; letter-spacing: -0.2px;" @click.stop>
+                                {{ item.ClientPhone }}
+                            </a>
+                            <span v-else class="text-muted">—</span>
                         </td>
 
                         <!-- 14. Авто -->
@@ -256,11 +255,10 @@
                             </div>
                         </td>
 
-                        <!-- 15. ГРЗ (РЕАЛИСТИЧНЫЙ АВТОНОМЕР РФ) -->
+                        <!-- ГРЗ в таблице -->
                         <td class="col-gnz text-center p-0">
-                            <div class="plate-ru-container" @mouseenter="handleCellMouseEnter($event, item.gnz)"
-                                @mouseleave="handleCellMouseLeave">
-                                <div class="plate-ru">
+                            <div class="plate-ru-container text-nowrap">
+                                <div class="plate-ru flex-shrink-0">
                                     <span class="plate-number">{{ parseGnz(item.gnz).number }}</span>
                                     <div v-if="parseGnz(item.gnz).region" class="plate-region-box">
                                         <span class="plate-region">{{ parseGnz(item.gnz).region }}</span>
@@ -296,7 +294,7 @@
                             </div>
                         </td>
 
-                        <!-- ФИНАНСОВЫЕ КОЛОНКИ СУММ -->
+                        <!-- Финансовые колонки -->
                         <template v-if="hasFinancialColumns">
                             <td class="col-fin text-end fw-medium">
                                 <div class="cell-truncate">{{ formatMoney(item.sum_sk) }} р.</div>
@@ -322,11 +320,10 @@
                             </td>
                         </template>
 
-                        <!-- Удаление -->
+                        <!-- Корзина -->
                         <td class="col-trash text-center p-0" @click.stop>
-                            <button class="btn btn-link btn-sm text-secondary p-0" @click="moveToTrash(item)">
-                                <i class="bi bi-trash3"></i>
-                            </button>
+                            <button class="btn btn-link btn-sm text-secondary p-0" @click="moveToTrash(item)"><i
+                                    class="bi bi-trash3"></i></button>
                         </td>
 
                         <!-- VIN -->
@@ -339,7 +336,8 @@
                     </tr>
 
                     <tr v-if="items.length === 0 && !loading">
-                        <td :colspan="hasFinancialColumns ? 26 : 19" class="text-center py-5 text-muted">
+                        <td :colspan="currentTab === 'applications' ? 27 : (hasFinancialColumns ? 26 : 19)"
+                            class="text-center py-5 text-muted">
                             Дела не найдены
                         </td>
                     </tr>
@@ -351,27 +349,21 @@
         <div class="mobile-filter-bar d-lg-none bg-white p-2 border-bottom shadow-sm mb-1">
             <div class="d-flex align-items-center gap-2">
                 <div class="input-group input-group-sm flex-grow-1">
-                    <span class="input-group-text bg-light text-muted border-end-0 py-0">
-                        <i class="bi bi-search"></i>
-                    </span>
+                    <span class="input-group-text bg-light text-muted border-end-0 py-0"><i
+                            class="bi bi-search"></i></span>
                     <input v-model="filters.CarModel" @input="debounceFetch" type="text"
                         class="form-control border-start-0 ps-0" placeholder="Поиск по авто, клиенту, ГНЗ..." />
                     <button v-if="filters.CarModel" class="btn btn-outline-secondary py-0"
-                        @click="filters.CarModel = ''; fetchItems(1)">
-                        <i class="bi bi-x"></i>
-                    </button>
+                        @click="filters.CarModel = ''; fetchItems(1)"><i class="bi bi-x"></i></button>
                 </div>
 
-                <button class="btn btn-sm mob-filter-btn d-flex align-items-center text-nowrap" :class="{
-                    'btn-warning text-dark fw-bold': activeFiltersCount > 0,
-                    'btn-outline-dark': activeFiltersCount === 0,
-                }" @click="isMobileFilterOpen = true">
+                <button class="btn btn-sm mob-filter-btn d-flex align-items-center text-nowrap"
+                    :class="{ 'btn-warning text-dark fw-bold': activeFiltersCount > 0, 'btn-outline-dark': activeFiltersCount === 0 }"
+                    @click="isMobileFilterOpen = true">
                     <i class="bi bi-funnel-fill me-1"></i>
                     <span>Фильтры</span>
                     <span v-if="activeFiltersCount > 0" class="badge bg-dark text-white rounded-pill ms-1"
-                        style="font-size: 0.65rem;">
-                        {{ activeFiltersCount }}
-                    </span>
+                        style="font-size: 0.65rem;">{{ activeFiltersCount }}</span>
                 </button>
 
                 <button v-if="activeFiltersCount > 0" class="btn btn-sm btn-outline-danger p-1" @click="resetAllFilters"
@@ -381,36 +373,53 @@
             </div>
         </div>
 
-        <!-- 3. МОБИЛЬНЫЙ СПИСОК КАРТОЧЕК (< 992px) -->
+        <!-- 3. МОБИЛЬНЫЙ СПИСОК ПЛИТОК/КАРТОЧЕК (< 992px) -->
         <div class="mobile-registry-list d-lg-none px-1 py-1">
             <div v-for="item in items" :key="'mob-' + item.id"
-                class="mob-deal-card mb-1 bg-white border rounded shadow-sm p-2"
-                :class="{ 'mob-row-overdue': item.is_overdue }" @click="openApplication(item.id)">
-                <!-- 1 СТРОКА: АВТО + ГНЗ + СТАТУС -->
-                <div class="d-flex justify-content-between align-items-center gap-1 mb-1">
-                    <div class="d-flex align-items-center gap-1 text-truncate flex-grow-1">
-                        <span class="fw-bold text-dark text-truncate mob-car-title" :title="item.CarModel">
-                            {{ item.CarModel || 'Автомобиль не указан' }}
-                        </span>
-                        <span class="mob-plate-badge text-nowrap flex-shrink-0">
-                            {{ item.gnz || 'Б/Н' }}
-                        </span>
+                class="mob-deal-card mb-2 bg-white border rounded shadow-sm p-2 position-relative overflow-hidden"
+                :class="{
+                    'mob-row-overdue': item.is_overdue || item.app_timer?.is_overdue,
+                    'mob-row-urgent': isItemUrgent(item),
+                }" :style="getRowBackgroundStyle(item)" @click="openApplication(item.id)">
+                <!-- 1 СТРОКА: РАЗДВИНУТЫ #ID, МАРКА И ГОСНОМЕР + ПЛАШКИ СТАТУСОВ ДРУГ ПОД ДРУГОМ -->
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-1.5">
+                    <!-- Левая часть: ID + Авто + ГРЗ -->
+                    <div class="d-flex flex-column gap-1 min-w-0 flex-grow-1">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge bg-dark font-monospace flex-shrink-0">#{{ item.id }}</span>
+                            <span class="fw-bold text-dark text-truncate mob-car-title" :title="item.CarModel">
+                                {{ item.CarModel || 'Авто не указано' }}
+                            </span>
+                        </div>
+                        <div v-if="item.gnz">
+                            <span class="mob-plate-badge text-nowrap">{{ item.gnz }}</span>
+                        </div>
                     </div>
 
-                    <div class="mob-status-pill text-nowrap flex-shrink-0 text-center">
-                        <div class="mob-status-name" :style="{
-                            backgroundColor: item.status?.bg_color || '#fef08a',
-                            color: item.status?.text_color || '#000000',
+                    <!-- Правая часть: Статус дела + под ним Фин. статус (если задан) -->
+                    <div class="d-flex flex-column align-items-end gap-1 flex-shrink-0">
+                        <!-- Основной статус -->
+                        <span class="status-compact-pill text-truncate px-2 py-0.5 text-center" :style="{
+                            backgroundColor: item.status?.bg_color || item.status_theme || '#fef08a',
+                            color: item.status?.text_color || '#1e293b',
+                            maxWidth: '135px',
                         }">
-                            {{ item.status?.name || 'Без статуса' }}
-                        </div>
-                        <div class="mob-status-time" :class="{ 'time-overdue': item.is_overdue }">
-                            {{ item.time_status_text }}
-                        </div>
+                            {{ item.status?.name || item.StatusName || 'Без статуса' }}
+                        </span>
+
+                        <!-- 1. Фин. статус ТОЛЬКО если задан и НЕ "Не определен" -->
+                        <span v-if="hasActiveFinanceStatus(item)"
+                            class="status-compact-pill text-truncate px-2 py-0.5 text-center" :style="{
+                                backgroundColor: item.finance_status?.bg_color || item.financeStatus?.bg_color || item.soglas_bg || '#dcfce7',
+                                color: item.finance_status?.text_color || item.financeStatus?.text_color || item.soglas_color || '#15803d',
+                                maxWidth: '135px',
+                            }">
+                            {{ getFinanceStatusTitle(item) }}
+                        </span>
                     </div>
                 </div>
 
-                <!-- 2 СТРОКА: КЛИЕНТ (ПОЛНОЕ ФИО БЕЗ ОБРЕЗАНИЯ) -->
+                <!-- 2 СТРОКА: КЛИЕНТ (ПОЛНОЕ ФИО) -->
                 <div class="mob-client-row text-dark mb-1">
                     <i class="bi bi-person text-secondary me-1"></i>
                     <span class="fw-semibold mob-client-name text-uppercase">
@@ -418,7 +427,7 @@
                     </span>
                 </div>
 
-                <!-- 3 СТРОКА: ТЕЛЕФОН (КЛИКАБЕЛЬНЫЙ) -->
+                <!-- 3 СТРОКА: ТЕЛЕФОН КЛИЕНТА (ЗВОНОК В 1 ТАП) -->
                 <div class="mob-phone-row mb-1 pb-1 border-bottom" v-if="item.ClientPhone">
                     <a :href="'tel:' + item.ClientPhone"
                         class="mob-phone-link d-inline-flex align-items-center text-decoration-none text-primary fw-medium"
@@ -428,14 +437,19 @@
                     </a>
                 </div>
 
-                <!-- 4 СТРОКА: ДЕТАЛИ -->
+                <!-- 4 СТРОКА: ЮРИСТ (МОБИЛЬНЫЙ ВИД) -->
+                <div v-if="item.lawyer || item.id_lawyer" class="d-flex align-items-center gap-1 mb-1"
+                    style="font-size: 0.72rem;">
+                    <span class="text-muted">Юрист:</span>
+                    <ApplicationLawyerBadge :item="item" />
+                </div>
+
+                <!-- 5 СТРОКА: СК, СТОА, ДАТА -->
                 <div class="mob-details-grid d-flex flex-wrap align-items-center justify-content-between gap-1 text-muted"
                     style="font-size: 0.68rem;">
                     <div class="text-nowrap">
-                        <span class="fw-bold text-dark">#{{ item.id }}</span>
-                        <span v-if="item.numberInsuranceCompanyApplication || item.ub_number"
-                            class="text-secondary ms-1">
-                            ({{ item.numberInsuranceCompanyApplication || item.ub_number }})
+                        <span v-if="item.numberInsuranceCompanyApplication || item.ub_number" class="text-secondary">
+                            Убыток: {{ item.numberInsuranceCompanyApplication || item.ub_number }}
                         </span>
                     </div>
 
@@ -452,7 +466,7 @@
                     </div>
                 </div>
 
-                <!-- ФИНАНСОВЫЙ БЛОК -->
+                <!-- Финансовый блок карточки -->
                 <div v-if="hasFinancialColumns && item.sum_sk"
                     class="mob-fin-bar mt-1 pt-1 border-top d-flex justify-content-between align-items-center small"
                     style="font-size: 0.70rem;">
@@ -504,6 +518,7 @@
                 </div>
 
                 <div class="p-3 mob-filter-content">
+                    <!-- Статус дела -->
                     <div class="mb-3">
                         <label class="form-label small fw-bold mb-1 text-muted">Статус дела</label>
                         <div class="mob-chip-list">
@@ -515,6 +530,19 @@
                         </div>
                     </div>
 
+                    <!-- Фин. статус -->
+                    <div class="mb-3" v-if="currentTab === 'applications'">
+                        <label class="form-label small fw-bold mb-1 text-muted">Согл/Опл (Фин. статус)</label>
+                        <div class="mob-chip-list">
+                            <span v-for="fst in financeStatusOptions" :key="fst.value" class="mob-chip"
+                                :class="{ active: filters.finance_status_ids.includes(fst.value) }"
+                                @click="toggleMobileArrayFilter('finance_status_ids', fst.value)">
+                                {{ fst.label }}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Сотрудник (МРК) -->
                     <div class="mb-3">
                         <label class="form-label small fw-bold mb-1 text-muted">Сотрудник (МРК)</label>
                         <select v-model="filters.mrk_ids" class="form-select form-select-sm" multiple
@@ -523,9 +551,9 @@
                                 {{ emp.label }}
                             </option>
                         </select>
-                        <small class="text-muted" style="font-size: 0.65rem;">Удерживайте для выбора нескольких</small>
                     </div>
 
+                    <!-- Город -->
                     <div class="mb-3">
                         <label class="form-label small fw-bold mb-1 text-muted">Город</label>
                         <div class="mob-chip-list">
@@ -537,6 +565,7 @@
                         </div>
                     </div>
 
+                    <!-- Страховая компания -->
                     <div class="mb-3">
                         <label class="form-label small fw-bold mb-1 text-muted">Страховая компания (СК)</label>
                         <select v-model="filters.insurance_ids" class="form-select form-select-sm" multiple
@@ -547,22 +576,7 @@
                         </select>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold mb-1 text-muted">Тип убытка</label>
-                        <div class="d-flex gap-2">
-                            <button type="button" class="btn btn-sm flex-fill"
-                                :class="filters.ub_types.includes(0) ? 'btn-primary' : 'btn-outline-secondary'"
-                                @click="toggleMobileArrayFilter('ub_types', 0)">
-                                ОСАГО
-                            </button>
-                            <button type="button" class="btn btn-sm flex-fill"
-                                :class="filters.ub_types.includes(1) ? 'btn-primary' : 'btn-outline-secondary'"
-                                @click="toggleMobileArrayFilter('ub_types', 1)">
-                                КАСКО
-                            </button>
-                        </div>
-                    </div>
-
+                    <!-- Текстовые поля -->
                     <div class="row g-2 mb-3">
                         <div class="col-6">
                             <label class="form-label small fw-bold mb-1 text-muted">ГРЗ (номер)</label>
@@ -570,7 +584,7 @@
                                 placeholder="А001АА29" />
                         </div>
                         <div class="col-6">
-                            <label class="form-label small fw-bold mb-1 text-muted">№ убытка / дела</label>
+                            <label class="form-label small fw-bold mb-1 text-muted">№ убытка</label>
                             <input v-model="filters.ub_number" type="text" class="form-control form-control-sm"
                                 placeholder="№ дела СК" />
                         </div>
@@ -593,7 +607,7 @@
             </div>
         </Teleport>
 
-        <!-- 6. БЕЛЫЙ ПАРЯЩИЙ ТУЛТИП ДЛЯ УСЕЧЕННЫХ ЯЧЕЕК -->
+        <!-- 6. ПАРЯЩИЙ БЕЛЫЙ ТУЛТИП -->
         <Teleport to="body">
             <div v-if="tooltip.visible" class="floating-cell-tooltip shadow-lg" :style="{
                 top: tooltip.y + 'px',
@@ -610,11 +624,14 @@ import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import MultiSelectDropdown from '../../components/MultiSelectDropdown.vue';
+import ApplicationLawyerBadge from '../../components/applications/ApplicationLawyerBadge.vue';
+import { useRowStyles } from '../../composables/useRowStyles';
 
 const route = useRoute();
 const router = useRouter();
 
 const currentTab = computed(() => route.name || 'requests');
+// Финансовые суммы СК / З/Ч / Ремонт / Остаток отображаются в Направлениях и Архиве
 const hasFinancialColumns = computed(() => ['applications', 'archive'].includes(currentTab.value));
 
 const items = ref([]);
@@ -622,6 +639,7 @@ const loading = ref(false);
 
 const options = reactive({
     statuses: [],
+    finance_statuses: [],
     employees: [],
     cities: [],
     branches: [],
@@ -633,6 +651,7 @@ const STORAGE_KEY = 'mandarin_global_registry_filters';
 const getInitialFilters = () => ({
     id: '',
     status_ids: [],
+    finance_status_ids: [],
     mrk_ids: [],
     city_ids: [],
     insurance_ids: [],
@@ -648,6 +667,13 @@ const getInitialFilters = () => ({
 });
 
 const filters = reactive(getInitialFilters());
+
+const {
+    getFinanceStatusTitle,
+    hasActiveFinanceStatus,
+    isItemUrgent,
+    getRowBackgroundStyle,
+} = useRowStyles();
 
 const loadSavedFilters = () => {
     try {
@@ -677,102 +703,87 @@ const resetAllFilters = () => {
     fetchItems(1);
 };
 
-const parseGnz = (raw) => {
-    if (!raw) return { number: '—', region: '' };
-    const str = String(raw).trim().toUpperCase().replace(/\s+/g, '');
-    const match = str.match(/^([АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2})(\d{2,3})$/i);
-    if (match) {
-        const numPart = match[1];
-        const formatted = `${numPart[0]} ${numPart.slice(1, 4)} ${numPart.slice(4, 6)}`;
-        return { number: formatted, region: match[2] };
-    }
-    return { number: raw, region: '' };
-};
-
-const statusOptions = computed(() => {
-    return (options.statuses || []).map((s) => ({
-        value: s.id,
-        label: s.name || `Статус #${s.id}`,
-    }));
-});
-
-const employeeOptions = computed(() => {
-    return (options.employees || []).map((e) => ({
-        value: e.id,
-        label: e.name || `Сотрудник #${e.id}`,
-    }));
-});
-
-const cityOptions = computed(() => {
-    return (options.cities || []).map((c) => ({
-        value: c.id,
-        label: c.name || `Город #${c.id}`,
-    }));
-});
-
-const branchOptions = computed(() => {
-    return (options.branches || []).map((b) => ({
-        value: b.id,
-        label: b.name || `Филиал #${b.id}`,
-    }));
-});
-
-const insuranceOptions = computed(() => {
-    return (options.insurance_companies || []).map((i) => ({
-        value: i.id,
-        label: i.name || `СК #${i.id}`,
-    }));
-});
+// ================= ОПЦИИ СЕЛЕКТОВ =================
+const statusOptions = computed(() => (options.statuses || []).map((s) => ({ value: s.id, label: s.name || `Статус #${s.id}` })));
+const financeStatusOptions = computed(() => (options.finance_statuses || []).map((f) => ({ value: f.id, label: f.name || `Фин. статус #${f.id}` })));
+const employeeOptions = computed(() => (options.employees || []).map((e) => ({ value: e.id, label: e.name || `Сотрудник #${e.id}` })));
+const cityOptions = computed(() => (options.cities || []).map((c) => ({ value: c.id, label: c.name || `Город #${c.id}` })));
+const branchOptions = computed(() => (options.branches || []).map((b) => ({ value: b.id, label: b.name || `Филиал #${b.id}` })));
+const insuranceOptions = computed(() => (options.insurance_companies || []).map((i) => ({ value: i.id, label: i.name || `СК #${i.id}` })));
 
 const pagination = ref({ current_page: 1, last_page: 1, total: 0 });
 let timer = null;
 
-// Тултип логика для десктопа
-const tooltip = reactive({
-    visible: false,
-    text: '',
-    x: 0,
-    y: 0,
-});
+// ================= ТУЛТИП =================
+const tooltip = reactive({ visible: false, text: '', x: 0, y: 0 });
 
 const handleCellMouseEnter = (event, fullText) => {
     const el = event.currentTarget;
     if (!el || !fullText) return;
+    const rect = el.getBoundingClientRect();
+    tooltip.text = String(fullText);
+    let top = rect.top - 28;
+    let left = rect.left + rect.width / 2;
+    if (top < 10) top = rect.bottom + 6;
+    tooltip.x = left;
+    tooltip.y = top;
+    tooltip.visible = true;
+};
 
-    const rawText = String(fullText).trim();
-    if (!rawText || rawText === '—') return;
+// 5. Корректное всплывающее окно для основного и финансового статуса
+const handleStatusMouseEnter = (event, item, type = 'app') => {
+    const el = event.currentTarget;
+    if (!el || !item) return;
+    const rect = el.getBoundingClientRect();
 
-    // Проверяем: физически ли обрезается текст (с допуском 1px)
-    if (el.scrollWidth > el.clientWidth + 1) {
-        const rect = el.getBoundingClientRect();
-        tooltip.text = rawText;
-
-        let top = rect.top - 32;
-        let left = rect.left + rect.width / 2;
-
-        if (top < 10) {
-            top = rect.bottom + 8;
+    if (type === 'app') {
+        const name = item.status?.name || item.StatusName || 'Статус';
+        if (item.app_timer?.is_overdue || item.is_overdue) {
+            tooltip.text = `${name}: просрочено`;
+        } else if (item.app_timer?.display_text) {
+            tooltip.text = `${name}: ${item.app_timer.display_text}`;
+        } else {
+            const isDay = item.app_timer?.is_day !== false && item.app_timer?.is_day !== 0;
+            const unit = isDay ? 'дней' : 'часов';
+            const count = item.app_timer?.count_hour ?? item.count_hour ?? 0;
+            const max = item.app_timer?.max_hour ?? item.max_hour ?? 0;
+            tooltip.text = max > 0 ? `${name}: ${count} из ${max} ${unit}` : `${name}: ${count} ${unit}`;
         }
-
-        left = Math.max(120, Math.min(window.innerWidth - 120, left));
-
-        tooltip.x = left;
-        tooltip.y = top;
-        tooltip.visible = true;
+    } else {
+        // Фин. статус
+        const name = getFinanceStatusTitle(item) || 'Фин. статус';
+        if (item.finance_timer?.is_overdue || item.soglas_overdue) {
+            tooltip.text = `${name}: просрочено`;
+        } else if (item.finance_timer?.display_text) {
+            tooltip.text = `${name}: ${item.finance_timer.display_text}`;
+        } else {
+            const isDay = item.finance_timer?.is_day === true || item.finance_timer?.is_day === 1;
+            const unit = isDay ? 'дней' : 'часов';
+            const count = item.finance_timer?.count_hour_f ?? item.count_hour_f ?? 0;
+            const max = item.finance_timer?.max_hour_f ?? item.max_hour_f ?? 0;
+            tooltip.text = max > 0 ? `${name}: ${count} из ${max} ${unit}` : `${name}: ${count} ${unit}`;
+        }
     }
+
+    let top = rect.top - 28;
+    if (top < 10) top = rect.bottom + 6;
+    tooltip.x = rect.left + rect.width / 2;
+    tooltip.y = top;
+    tooltip.visible = true;
 };
 
 const handleCellMouseLeave = () => {
     tooltip.visible = false;
 };
 
-// Мобильная панель фильтров
+// ================= МОБИЛЬНАЯ ШТОРКА =================
 const isMobileFilterOpen = ref(false);
 
 const activeFiltersCount = computed(() => {
     let count = 0;
     if (filters.id) count++;
     if (filters.status_ids?.length) count += filters.status_ids.length;
+    if (filters.finance_status_ids?.length) count += filters.finance_status_ids.length;
     if (filters.mrk_ids?.length) count += filters.mrk_ids.length;
     if (filters.city_ids?.length) count += filters.city_ids.length;
     if (filters.insurance_ids?.length) count += filters.insurance_ids.length;
@@ -780,7 +791,8 @@ const activeFiltersCount = computed(() => {
     if (filters.ub_types?.length) count += filters.ub_types.length;
     if (filters.sto_name) count++;
     if (filters.ub_number) count++;
-    if (filters.ClientName) count++; if (filters.ClientPhone) count++;
+    if (filters.ClientName) count++;
+    if (filters.ClientPhone) count++;
     if (filters.CarModel) count++;
     if (filters.gnz) count++;
     if (filters.vin) count++;
@@ -790,11 +802,8 @@ const activeFiltersCount = computed(() => {
 const toggleMobileArrayFilter = (field, value) => {
     const current = [...filters[field]];
     const idx = current.indexOf(value);
-    if (idx > -1) {
-        current.splice(idx, 1);
-    } else {
-        current.push(value);
-    }
+    if (idx > -1) current.splice(idx, 1);
+    else current.push(value);
     filters[field] = current;
 };
 
@@ -803,11 +812,13 @@ const applyMobileFilters = () => {
     fetchItems(1);
 };
 
+// ================= ЗАГРУЗКА ДАННЫХ =================
 const fetchFilterOptions = async () => {
     try {
         const res = await axios.get('/api/applications/filters');
         if (res.data) {
             options.statuses = res.data.statuses || [];
+            options.finance_statuses = res.data.finance_statuses || res.data.soglas_statuses || [];
             options.employees = res.data.employees || [];
             options.cities = res.data.cities || [];
             options.branches = res.data.branches || [];
@@ -826,6 +837,7 @@ const fetchItems = async (page = 1) => {
             page,
             id: filters.id || undefined,
             status_ids: filters.status_ids.length ? filters.status_ids.join(',') : undefined,
+            finance_status_ids: filters.finance_status_ids.length ? filters.finance_status_ids.join(',') : undefined,
             mrk_ids: filters.mrk_ids.length ? filters.mrk_ids.join(',') : undefined,
             city_ids: filters.city_ids.length ? filters.city_ids.join(',') : undefined,
             insurance_ids: filters.insurance_ids.length ? filters.insurance_ids.join(',') : undefined,
@@ -848,7 +860,7 @@ const fetchItems = async (page = 1) => {
             total: res.data.total || 0,
         };
     } catch (err) {
-        console.error('Ошибка загрузки списка дел:', err);
+        console.error('Ошибка загрузки дел:', err);
     } finally {
         loading.value = false;
     }
@@ -859,12 +871,7 @@ const debounceFetch = () => {
     timer = setTimeout(() => fetchItems(1), 350);
 };
 
-const openApplication = (id) => {
-    router.push({
-        name: 'applications.general',
-        params: { id: id }
-    });
-};
+const openApplication = (id) => router.push(`/applications/${id}`);
 
 const moveToTrash = async (item) => {
     if (confirm(`Переместить дело #${item.id} в корзину?`)) {
@@ -896,17 +903,32 @@ watch(
     () => route.name,
     () => {
         filters.status_ids = [];
+        filters.finance_status_ids = [];
         saveFilters();
         fetchItems(1);
     }
 );
 
 onMounted(async () => {
-    console.log("Доступные маршруты:", router.getRoutes());
     loadSavedFilters();
     await fetchFilterOptions();
     fetchItems(1);
 });
+
+// Разбор ГРЗ на номер и регион
+const parseGnz = (raw) => {
+    if (!raw) return { number: '', region: '' };
+    const str = String(raw).trim().toUpperCase().replace(/\s+/g, '');
+    const match = str.match(/^([АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2})(\d{2,3})$/i);
+    if (match) {
+        const numPart = match[1];
+        return {
+            number: `${numPart[0]} ${numPart.slice(1, 4)} ${numPart.slice(4, 6)}`,
+            region: match[2],
+        };
+    }
+    return { number: raw, region: '' };
+};
 </script>
 
 <style scoped>
@@ -921,7 +943,6 @@ onMounted(async () => {
 .table-mandarin div {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
     -webkit-font-smoothing: antialiased !important;
-    -moz-osx-font-smoothing: grayscale !important;
     text-rendering: optimizeLegibility !important;
 }
 
@@ -945,99 +966,48 @@ onMounted(async () => {
     overflow-x: hidden !important;
 }
 
-/* 1 СТРОКА: ЗАГОЛОВКИ КОЛОНОК */
+.table-mandarin {
+    table-layout: fixed !important;
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse !important;
+    border: 1px solid #000000 !important;
+    letter-spacing: -0.01em;
+}
+
+.table-mandarin.table-fit {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
 .table-mandarin thead .header-blue th {
-    background: linear-gradient(180deg, #1e88e5 0%, #1565c0 100%) !important;
+    background-color: #299bd1 !important;
     color: #ffffff !important;
-    font-size: 0.69rem !important;
-    font-weight: 700 !important;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    padding: 6px 3px !important;
-    border-top: none !important;
-    border-bottom: 1px solid #0d47a1 !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.18) !important;
-    border-left: none !important;
+    font-size: 0.70rem !important;
+    font-weight: 600 !important;
+    text-align: center;
+    padding: 4px 2px !important;
+    border: 1px solid #000000 !important;
     white-space: nowrap;
-    vertical-align: middle;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-    user-select: none;
 }
 
-.table-mandarin thead .header-blue th:last-child {
-    border-right: none !important;
-}
-
-/* 2 СТРОКА: ПОЛЯ ФИЛЬТРАЦИИ */
 .table-mandarin thead .header-filters th {
-    background: #f1f5f9 !important;
-    padding: 3px 2px !important;
-    border-bottom: 2px solid #cbd5e1 !important;
-    border-right: 1px solid #e2e8f0 !important;
-    border-top: none !important;
-    vertical-align: middle;
+    background-color: #299bd1 !important;
+    padding: 2px 2px !important;
+    border: 1px solid #000000 !important;
 }
 
-.table-mandarin thead .header-filters th:last-child {
-    border-right: none !important;
-}
-
-/* ИНПУТЫ ФИЛЬТРОВ */
 :deep(.form-control-table),
 .form-control-table {
     width: 100%;
     font-size: 0.68rem !important;
-    font-weight: 500;
-    font-family: inherit;
-    padding: 1px 5px !important;
-    height: 22px !important;
+    padding: 1px 3px !important;
+    height: 20px !important;
     line-height: 1.2;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
+    border: 1px solid #000000;
+    border-radius: 2px;
     background-color: #ffffff;
-    color: #1e293b;
     outline: none;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-    transition: all 0.15s ease-in-out;
-}
-
-:deep(.form-control-table::placeholder),
-.form-control-table::placeholder {
-    color: #94a3b8;
-    font-size: 0.66rem;
-}
-
-:deep(.form-control-table:hover),
-.form-control-table:hover {
-    border-color: #94a3b8;
-}
-
-:deep(.form-control-table:focus),
-.form-control-table:focus {
-    border-color: #0284c7;
-    background-color: #ffffff;
-    box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
-}
-
-/* КНОПКА СБРОСА ВСЕХ ФИЛЬТРОВ */
-.btn-reset-filters {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
-    border: none;
-    background: transparent;
-    color: #94a3b8;
-    transition: all 0.15s ease;
-    cursor: pointer;
-}
-
-.btn-reset-filters:hover {
-    background: #fee2e2;
-    color: #ef4444;
-    transform: scale(1.1);
 }
 
 .table-mandarin td {
@@ -1045,10 +1015,11 @@ onMounted(async () => {
     font-size: 0.70rem !important;
     line-height: 1.2;
     border: 1px solid #000000 !important;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
     color: #1e293b;
+    background-color: transparent !important;
 }
 
 .cell-truncate {
@@ -1059,6 +1030,24 @@ onMounted(async () => {
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
+}
+
+.urgent-cell-red {
+    background-color: #dc2626 !important;
+    color: #ffffff !important;
+}
+
+.status-compact-pill {
+    display: block;
+    width: 100%;
+    font-size: 0.64rem !important;
+    font-weight: 600;
+    padding: 1px 3px;
+    border-radius: 2px;
+    line-height: 1.2;
+    text-align: center;
+    border: 1px solid #000000;
+    cursor: pointer;
 }
 
 .col-num {
@@ -1074,15 +1063,15 @@ onMounted(async () => {
 }
 
 .col-status {
-    width: 100px;
-    min-width: 90px;
-    max-width: 110px;
+    width: 92px;
+    min-width: 85px;
+    max-width: 100px;
 }
 
 .col-soglas {
-    width: 95px;
-    min-width: 90px;
-    max-width: 105px;
+    width: 92px;
+    min-width: 85px;
+    max-width: 100px;
 }
 
 .col-id {
@@ -1116,9 +1105,9 @@ onMounted(async () => {
 }
 
 .col-lawyer {
-    width: 44px;
-    min-width: 40px;
-    max-width: 48px;
+    width: 65px;
+    min-width: 55px;
+    max-width: 80px;
 }
 
 .col-ub {
@@ -1134,10 +1123,10 @@ onMounted(async () => {
 }
 
 .col-phone {
-    font-size: 0.6rem;
-    width: 105px;
-    min-width: 80px;
-    max-width: 105px;
+    width: 122px !important;
+    min-width: 122px !important;
+    max-width: 130px !important;
+    white-space: nowrap !important;
 }
 
 .col-car {
@@ -1147,9 +1136,10 @@ onMounted(async () => {
 }
 
 .col-gnz {
-    width: 72px;
-    min-width: 70px;
-    max-width: 82px;
+    width: 90px !important;
+    min-width: 90px !important;
+    max-width: 96px !important;
+    white-space: nowrap !important;
 }
 
 .col-date {
@@ -1196,61 +1186,11 @@ onMounted(async () => {
 
 .data-row {
     cursor: pointer;
-    background-color: #ffffff;
-    transition: background-color 0.12s ease-in-out;
+    transition: filter 0.12s ease;
 }
 
-.data-row:hover td {
-    background-color: #e0f2fe !important;
-    color: #0f172a !important;
-}
-
-.row-overdue {
-    background-color: #fca5a5 !important;
-}
-
-.row-overdue td {
-    background-color: #fca5a5 !important;
-    color: #000000 !important;
-}
-
-.row-overdue:hover td {
-    background-color: #f87171 !important;
-    color: #000000 !important;
-}
-
-.status-cell {
-    padding: 1px 2px !important;
-}
-
-.status-title-box,
-.soglas-title-box {
-    font-size: 0.63rem !important;
-    font-weight: 600;
-    padding: 1px 2px;
-    line-height: 1.15;
-    white-space: nowrap;
-    border-top: 1px solid #000000;
-    border-left: 1px solid #000000;
-    border-right: 1px solid #000000;
-    border-radius: 2px 2px 0 0;
-}
-
-.status-time-box,
-.soglas-time-box {
-    font-size: 0.62rem !important;
-    font-weight: 700;
-    padding: 1px 2px;
-    line-height: 1.15;
-    background-color: #1d4ed8;
-    color: #ffffff;
-    border: 1px solid #000000;
-    border-radius: 0 0 2px 2px;
-}
-
-.time-overdue {
-    background-color: #b91c1c !important;
-    color: #ffffff !important;
+.data-row:hover {
+    filter: brightness(0.95);
 }
 
 .dog-badge {
@@ -1294,106 +1234,16 @@ onMounted(async () => {
     line-height: 1.2;
 }
 
-.lawyer-line {
-    width: 24px;
-    height: 4px;
-    background-color: #16a34a;
-    border: 1px solid #000000;
-    border-radius: 2px;
+.cell-gnz-plate {
     display: inline-block;
-}
-
-.plate-ru-container {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-}
-
-.plate-ru {
-    display: inline-flex;
-    align-items: center;
     background-color: #ffffff;
-    color: #111827;
-    border: 1px solid #1f2937;
-    border-radius: 2px;
-    height: 18px;
-    padding: 0 2px;
-    line-height: 1;
-    user-select: none;
-}
-
-.plate-number {
-    font-size: 0.64rem;
+    color: #000000;
+    border: 1px solid #000000;
+    border-radius: 3px;
+    padding: 0 4px;
+    font-size: 0.68rem;
     font-weight: 700;
-    letter-spacing: 0.3px;
-    padding: 0 2px 0 1px;
-    text-transform: uppercase;
-    color: #000000;
-    white-space: nowrap;
-}
-
-.plate-region-box {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    border-left: 1px solid #1f2937;
-    padding-left: 2px;
-    padding-right: 1px;
-    height: 100%;
-    min-width: 14px;
-}
-
-.plate-region {
-    font-size: 0.54rem;
-    font-weight: 800;
-    line-height: 1;
-    color: #000000;
-    letter-spacing: -0.2px;
-}
-
-.plate-flag-row {
-    display: flex;
-    align-items: center;
-    gap: 1px;
-    margin-top: 0.5px;
-}
-
-.plate-rus-text {
-    font-size: 0.34rem;
-    font-weight: 800;
-    line-height: 1;
-    color: #000000;
-    transform: scale(0.85);
-}
-
-.plate-flag {
-    display: flex;
-    flex-direction: column;
-    width: 5px;
-    height: 3.5px;
-    border: 0.5px solid #94a3b8;
-    border-radius: 0.5px;
-    overflow: hidden;
-}
-
-.plate-flag .flag-white {
-    background-color: #ffffff;
-    height: 1.2px;
-    width: 100%;
-}
-
-.plate-flag .flag-blue {
-    background-color: #0039a6;
-    height: 1.2px;
-    width: 100%;
-}
-
-.plate-flag .flag-red {
-    background-color: #d52b1e;
-    height: 1.2px;
-    width: 100%;
+    letter-spacing: 0.5px;
 }
 
 .pagination-bar {
@@ -1403,6 +1253,9 @@ onMounted(async () => {
     border-top: 1px solid #000000 !important;
 }
 
+/* ========================================================= */
+/* МОБИЛЬНЫЙ ВИД (< 992px)                                   */
+/* ========================================================= */
 .mob-filter-btn {
     height: 31px;
     font-size: 0.75rem;
@@ -1411,14 +1264,22 @@ onMounted(async () => {
 .mob-deal-card {
     cursor: pointer;
     border: 1px solid #000000 !important;
-    border-left: 4px solid #299bd1 !important;
-    transition: transform 0.08s ease, background-color 0.12s ease;
+    border-left: 5px solid #299bd1 !important;
+    transition: transform 0.08s ease;
     line-height: 1.25;
 }
 
 .mob-deal-card:active {
     transform: scale(0.99);
-    background-color: #f1f5f9;
+}
+
+.mob-row-urgent {
+    border-left-color: #dc2626 !important;
+    box-shadow: 0 0 0 1px #dc2626 !important;
+}
+
+.mob-row-overdue {
+    border-left-color: #b91c1c !important;
 }
 
 .mob-car-title {
@@ -1435,33 +1296,6 @@ onMounted(async () => {
     padding: 0 4px;
     font-size: 0.70rem;
     font-weight: 700;
-    letter-spacing: 0.5px;
-}
-
-.mob-status-pill {
-    width: 90px;
-}
-
-.mob-status-name {
-    font-size: 0.60rem;
-    font-weight: 600;
-    padding: 1px 3px;
-    border: 1px solid #000000;
-    border-bottom: none;
-    border-radius: 2px 2px 0 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.mob-status-time {
-    font-size: 0.58rem;
-    font-weight: 700;
-    padding: 1px 3px;
-    background-color: #1d4ed8;
-    color: #ffffff;
-    border: 1px solid #000000;
-    border-radius: 0 0 2px 2px;
 }
 
 .mob-client-row {
@@ -1475,32 +1309,15 @@ onMounted(async () => {
     display: inline;
 }
 
-.mob-phone-row {
-    line-height: 1.2;
-}
-
 .mob-phone-link {
     font-size: 0.72rem;
     padding: 1px 6px;
     background-color: #eff6ff;
     border: 1px solid #bfdbfe;
     border-radius: 4px;
-    letter-spacing: 0.2px;
 }
 
-.mob-phone-link:active {
-    background-color: #dbeafe;
-}
-
-.mob-row-overdue {
-    background-color: #fca5a5 !important;
-    border-left-color: #b91c1c !important;
-}
-
-.mob-row-overdue .mob-plate-badge {
-    background-color: #fee2e2;
-}
-
+/* МОБИЛЬНАЯ ШТОРКА ФИЛЬТРОВ */
 .mob-filter-backdrop {
     position: fixed;
     inset: 0;
@@ -1565,9 +1382,10 @@ onMounted(async () => {
 </style>
 
 <style>
+/* ГЛОБАЛЬНЫЙ ПАРЯЩИЙ ТУЛТИП */
 .floating-cell-tooltip {
-    position: fixed;
-    transform: translateX(-50%);
+    position: fixed !important;
+    transform: translateX(-50%) !important;
     background-color: #ffffff !important;
     color: #0f172a !important;
     border: 1px solid #cbd5e1 !important;
@@ -1606,70 +1424,49 @@ onMounted(async () => {
     }
 }
 
-.col-lawyer {
-    width: 44px;
-    min-width: 40px;
-    max-width: 48px;
-}
-
-.lawyer-pill {
+.plate-ru {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    font-size: 0.72rem;
-    transition: transform 0.1s ease;
-    cursor: help;
-}
-
-.lawyer-pill:hover {
-    transform: scale(1.15);
-}
-
-.lawyer-coop {
-    background-color: #dcfce7;
-    color: #16a34a;
-    border: 1px solid #86efac;
-}
-
-.lawyer-no-coop {
-    background-color: #fee2e2;
-    color: #dc2626;
-    border: 1px solid #fca5a5;
-}
-
-/* Ширина колонки под ФИО */
-.col-lawyer {
-    width: 110px;
-    min-width: 75px;
-    max-width: 140px;
-}
-
-/* Базовый текстовый бейдж юриста */
-.badge-lawyer {
-    font-size: 0.6rem !important;
-    font-weight: 600;
-    padding: 1px 4px;
+    background-color: #ffffff;
+    color: #111827;
+    border: 1.5px solid #1f2937;
     border-radius: 3px;
-    line-height: 1.2;
-    letter-spacing: -0.01em;
-    max-width: 100%;
-    cursor: default;
+    height: 20px;
+    padding: 0 3px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    user-select: none;
+    line-height: 1;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
-/* Зеленый - сотрудничает */
-.badge-lawyer-coop {
-    background-color: #dcfce7 !important;
-    color: #15803d !important;
-    border: 1px solid #86efac !important;
+.plate-number {
+    font-size: 0.70rem;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    padding: 0 3px 0 1px;
+    text-transform: uppercase;
+    color: #000000;
+    white-space: nowrap;
 }
 
-/* Красный - не сотрудничает */
-.badge-lawyer-no-coop {
-    background-color: #fee2e2 !important;
-    color: #b91c1c !important;
-    border: 1px solid #fca5a5 !important;
+.plate-region-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-left: 1px solid #1f2937;
+    padding-left: 2px;
+    padding-right: 1px;
+    height: 100%;
+    min-width: 18px;
+}
+
+.plate-region {
+    font-size: 0.60rem;
+    font-weight: 800;
+    line-height: 1;
+    color: #000000;
+    letter-spacing: -0.2px;
 }
 </style>

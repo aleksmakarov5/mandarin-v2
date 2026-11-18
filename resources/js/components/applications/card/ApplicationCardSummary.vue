@@ -5,11 +5,12 @@
             <div class="col-12 col-md-6 col-lg-3">
                 <div class="summary-primary">
                     <i class="bi bi-car-front-fill text-primary"></i>
-                    <span class="fw-bold text-truncate">
-                        {{ application.CarModel || 'Автомобиль не указан' }}
+                    <span class="fw-bold text-truncate"
+                        :title="application?.CarModel || application?.car_model || 'Автомобиль не указан'">
+                        {{ application?.CarModel || application?.car_model || 'Автомобиль не указан' }}
                     </span>
 
-                    <span v-if="application.gnz" class="car-plate ms-2">
+                    <span v-if="application?.gnz || application?.car_number" class="car-plate ms-2">
                         <span class="car-plate__main">{{ plateParts.main }}</span>
                         <span v-if="plateParts.region" class="car-plate__region">
                             <span class="car-plate__code">{{ plateParts.region }}</span>
@@ -24,7 +25,7 @@
                         </span>
                     </span>
                 </div>
-                <div class="summary-secondary">VIN: {{ application.vin || '—' }}</div>
+                <div class="summary-secondary">VIN: {{ application?.vin || '—' }}</div>
             </div>
 
             <!-- 2. Клиент / Представитель -->
@@ -32,8 +33,7 @@
                 <div class="summary-primary">
                     <i class="bi bi-person-fill text-success"></i>
                     <span class="fw-semibold text-truncate">
-                        {{ isRepresentative ? 'Представитель:' : '' }}
-                        {{ clientNameDisplay }}
+                        {{ isRepresentative ? 'Представитель: ' : '' }}{{ clientNameDisplay }}
                     </span>
                 </div>
                 <div class="summary-secondary">
@@ -45,29 +45,37 @@
                 </div>
             </div>
 
-            <!-- 3. Страховая и Тип убытка -->
+            <!-- 3. Страховая, Тип убытка, ДТП и Дата создания -->
             <div class="col-12 col-md-6 col-lg-3">
                 <div class="summary-primary">
                     <i class="bi bi-shield-check text-warning"></i>
-                    <span class="text-truncate">{{ insuranceName }}</span>
+                    <span class="text-truncate" :title="insuranceName">{{ insuranceName }}</span>
                     <!-- Бейдж типа убытка -->
-                    <span class="badge ms-2" :class="ubTypeBadgeClass">
+                    <span v-if="ubTypeText" class="badge ms-2" :class="ubTypeBadgeClass">
                         {{ ubTypeText }}
                     </span>
+                    <!-- Дата создания (светлым цветом и курсивом) -->
+                    <span v-if="application?.created_at" class="fst-italic opacity-75 ms-1"
+                        :title="'Дата создания: ' + formatDate(application?.created_at)">
+                        Заявка: {{ formatDate(application?.created_at) }}
+                    </span>
                 </div>
-                <div class="summary-secondary">
-                    № {{ lossNumber }} <span class="mx-1">·</span> ДТП: {{ formatDate(application.DTPdate) }}
+                <div class="summary-secondary d-flex flex-wrap align-items-center gap-1">
+                    <span>№ {{ lossNumber }}</span>
+                    <span class="mx-1">·</span>
+                    <span>ДТП: {{ formatDate(application?.DTPdate) }}</span>
+
                 </div>
-            </div>
-            <!-- 4. НОВЫЙ БЛОК: Статус -->
-            <!-- Внутри ApplicationCardSummary.vue -->
-            <div class="col-12 col-md-6 col-lg-3 d-flex justify-content-xl-end align-items-center">
-                <ApplicationStatusChanger :current-status="currentStatus" :statuses="allStatuses"
-                    :finance-status-id="financeStatusId" :current-finance-status="currentFinanceStatus"
-                    :finance-statuses="allFinanceStatuses" @change="handleStatusChange"
-                    @change-finance="handleFinanceStatusChange" />
             </div>
 
+            <!-- 4. Статусы и Тайм-бары -->
+            <div class="col-12 col-md-6 col-lg-3 d-flex justify-content-lg-end align-items-center">
+                <ApplicationStatusChanger :current-status="currentStatus" :statuses="allStatuses"
+                    :app-timer="appTimerData" :finance-status-id="financeStatusId"
+                    :current-finance-status="currentFinanceStatus" :finance-statuses="allFinanceStatuses"
+                    :finance-timer="financeTimerData" @change="handleStatusChange"
+                    @change-finance="handleFinanceStatusChange" />
+            </div>
         </div>
     </section>
 </template>
@@ -80,13 +88,15 @@ const props = defineProps({
     application: { type: Object, default: () => ({}) },
     currentStatus: { type: Object, default: null },
     allStatuses: { type: Array, default: () => [] },
-    allFinanceStatuses: { type: Array, default: () => [] }, // Добавили список фин. статусов
+    allFinanceStatuses: { type: Array, default: () => [] },
     insuranceName: { type: String, default: 'Страховая компания не выбрана' },
 });
 
 const emit = defineEmits(['status-change', 'finance-status-change']);
 
-// Определяем ID финансового статуса дела
+const hasData = computed(() => Object.keys(props.application || {}).length > 0);
+
+// ID финансового статуса
 const financeStatusId = computed(() => {
     const val = props.application?.finance_status_id
         ?? props.application?.finance_statuses_id
@@ -94,54 +104,121 @@ const financeStatusId = computed(() => {
     return val !== null && val !== undefined ? Number(val) : 0;
 });
 
-// Находим текущий объект финансового статуса из списка
+// Нахождение объекта финансового статуса
 const currentFinanceStatus = computed(() => {
     if (!financeStatusId.value || !Array.isArray(props.allFinanceStatuses)) {
         return null;
     }
     return props.allFinanceStatuses.find(
-        (item) => Number(item.id) === financeStatusId.value
+        (item) => Number(item?.id) === financeStatusId.value
     ) || null;
 });
 
 function handleStatusChange(status) {
-    emit('status-change', status);
+    if (status) {
+        emit('status-change', status);
+    }
 }
 
 function handleFinanceStatusChange(status) {
-    emit('finance-status-change', status);
+    if (status) {
+        emit('finance-status-change', status);
+    }
 }
 
-const hasData = computed(() => Object.keys(props.application || {}).length > 0);
-const lossNumber = computed(() => props.application.numberInsuranceCompanyApplication || props.application.ub_number || 'б/н');
+const lossNumber = computed(() => {
+    return props.application?.numberInsuranceCompanyApplication
+        || props.application?.ub_number
+        || props.application?.insurance_app_number
+        || 'б/н';
+});
 
-// Логика выбора Представитель / Клиент
-const isRepresentative = computed(() => !!props.application.pred);
-const clientNameDisplay = computed(() => props.application.pred || props.application.ClientName || 'Клиент не указан');
-const displayPhone = computed(() => isRepresentative.value ? props.application.pred_phone : props.application.ClientPhone);
+// Проверка: Представитель или Клиент
+const isRepresentative = computed(() => {
+    return Boolean(props.application?.pred || props.application?.pred_phone);
+});
+
+const clientNameDisplay = computed(() => {
+    if (isRepresentative.value) {
+        return props.application?.pred || 'Представитель (без имени)';
+    }
+    return props.application?.ClientName || props.application?.client_name || 'Клиент не указан';
+});
+
+const displayPhone = computed(() => {
+    return isRepresentative.value
+        ? (props.application?.pred_phone || props.application?.ClientPhone)
+        : (props.application?.ClientPhone || props.application?.client_phone);
+});
 
 const phoneLink = computed(() => {
     const phone = displayPhone.value;
     if (!phone) return null;
-    const digits = String(phone).replace(/\D/g, '');
-    return digits ? `tel:+${digits}` : null;
+    let digits = String(phone).replace(/\D/g, '');
+    if (!digits) return null;
+    if (digits.length === 10) digits = '7' + digits;
+    if (digits.startsWith('8')) digits = '7' + digits.slice(1);
+    return `tel:+${digits}`;
 });
 
-// Логика бейджа типа убытка (0 = ОСАГО, 1 = КАСКО)
-const ubTypeText = computed(() => props.application.ub_type == 1 ? 'КАСКО' : 'ОСАГО');
-const ubTypeBadgeClass = computed(() => props.application.ub_type == 1 ? 'bg-primary' : 'bg-success');
+// Тип убытка
+const ubTypeText = computed(() => {
+    const raw = props.application?.ub_type ?? props.application?.loss_type ?? props.application?.type_loss;
+    if (raw === null || raw === undefined || raw === '') return 'ОСАГО';
+
+    const str = String(raw).trim().toLowerCase();
+    if (str === '1' || str === 'каско' || str === 'casco' || str === '2') {
+        return 'КАСКО';
+    }
+    return 'ОСАГО';
+});
+
+const ubTypeBadgeClass = computed(() => {
+    return ubTypeText.value === 'КАСКО' ? 'bg-primary' : 'bg-success';
+});
+
+// Безопасный сбор данных таймеров
+const appTimerData = computed(() => {
+    if (props.application?.app_timer && typeof props.application.app_timer === 'object') {
+        return props.application.app_timer;
+    }
+    return {
+        max_hour: props.application?.max_hour ?? props.currentStatus?.time ?? 0,
+        count_hour: props.application?.count_hour ?? props.application?.current_hour ?? 0,
+        is_overdue: Boolean(props.application?.is_overdue),
+        is_day: Boolean(props.application?.day || props.application?.is_day || props.currentStatus?.is_day),
+    };
+});
+
+const financeTimerData = computed(() => {
+    if (props.application?.finance_timer && typeof props.application.finance_timer === 'object') {
+        return props.application.finance_timer;
+    }
+    return {
+        max_hour_f: props.application?.max_hour_f ?? props.currentFinanceStatus?.time ?? 0,
+        count_hour_f: props.application?.count_hour_f ?? props.application?.count_hour ?? 0,
+        is_overdue: Boolean(Number(props.application?.count_hour_f) < 0),
+        is_day: Boolean(props.currentFinanceStatus?.is_day),
+    };
+});
 
 function formatDate(value) {
     if (!value) return '—';
-    const date = new Date(`${String(value).substring(0, 10)}T00:00:00`);
-    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('ru-RU');
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return String(value).substring(0, 10);
+    }
+    return date.toLocaleDateString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+    });
 }
 
 const plateParts = computed(() => {
-    const raw = String(props.application?.gnz || '').trim();
+    const raw = String(props.application?.gnz || props.application?.car_number || '').trim();
     if (!raw) return { main: '', region: '' };
 
-    // Стандартный формат РФ: А123ВС77 или А 123 ВС 777
     const cleaned = raw.replace(/\s+/g, '');
     const match = cleaned.match(/^([а-яА-Яa-zA-Z]\d{3}[а-яА-Яa-zA-Z]{2})(\d{2,3})$/i);
 
@@ -152,85 +229,94 @@ const plateParts = computed(() => {
         };
     }
 
-    // Если формат нестандартный — выводим целиком слева, регион пустой
     return {
         main: raw.toUpperCase(),
         region: '',
     };
 });
 </script>
+
 <style scoped>
+.application-card-summary {
+    padding: 8px 14px;
+    font-size: 0.78rem;
+}
+
+.summary-primary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.summary-secondary {
+    margin-top: 2px;
+    margin-left: 20px;
+    color: #64748b;
+    font-size: 0.72rem;
+}
+
 .car-plate {
     display: inline-flex;
     align-items: stretch;
-    height: 26px;
+    height: 22px;
     background: #ffffff;
     border: 1.5px solid #111827;
-    border-radius: 4px;
+    border-radius: 3px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", monospace;
     font-weight: 800;
     line-height: 1;
     color: #111827;
     user-select: none;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
     vertical-align: middle;
     flex-shrink: 0;
-    margin-left: 0.65rem;
-    /* Заметный отступ от марки и модели */
 }
 
-/* Основная серия и номер (буква-цифры-буквы) */
 .car-plate__main {
     display: flex;
     align-items: center;
-    padding: 0 6px;
-    font-size: 13.5px;
-    letter-spacing: 0.8px;
+    padding: 0 4px;
+    font-size: 11.5px;
+    letter-spacing: 0.5px;
     font-weight: 800;
 }
 
-/* Правая секция региона */
 .car-plate__region {
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     border-left: 1.5px solid #111827;
-    padding: 1px 4px 1px 3px;
-    min-width: 24px;
+    padding: 1px 3px;
+    min-width: 20px;
     background: #fdfdfd;
 }
 
-/* Цифры региона */
 .car-plate__code {
-    font-size: 11px;
-    line-height: 11px;
+    font-size: 9.5px;
+    line-height: 9.5px;
     font-weight: 800;
-    letter-spacing: -0.2px;
 }
 
-/* Нижняя строчка с кодом страны и триколором */
 .car-plate__flag {
     display: flex;
     align-items: center;
-    gap: 2.5px;
+    gap: 2px;
     line-height: 1;
-    margin-top: 1.5px;
+    margin-top: 1px;
 }
 
 .car-plate__country {
-    font-size: 6.5px;
+    font-size: 5.5px;
     font-weight: 800;
-    letter-spacing: -0.2px;
     color: #111827;
 }
 
-/* Флаг РФ */
 .car-plate__tricolor {
     display: inline-flex;
     flex-direction: column;
-    width: 7px;
-    height: 4.5px;
+    width: 6px;
+    height: 3.5px;
     border: 0.5px solid #9ca3af;
     border-radius: 0.5px;
     overflow: hidden;
@@ -249,5 +335,11 @@ const plateParts = computed(() => {
 .car-plate__tricolor .tr-red {
     background: #d52b1e;
     flex: 1;
+}
+
+@media (max-width: 767.98px) {
+    .application-card-summary {
+        padding: 6px 10px;
+    }
 }
 </style>

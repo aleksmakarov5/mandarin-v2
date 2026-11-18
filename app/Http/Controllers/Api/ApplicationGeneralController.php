@@ -4,12 +4,16 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Application;
+use App\Services\ApplicationTimerService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
+use app\Providers\AuthServiceProvider;
+use Illuminate\Support\Facades\Gate;
 
 class ApplicationGeneralController extends Controller
 {
@@ -18,10 +22,14 @@ class ApplicationGeneralController extends Controller
         'ClientPasport_date',
         'DTPdate',
         'napr_date',
-        'view_date',
         'start_date',
         'sp_date',
         'end_date',
+    ];
+
+    private const DATETIME_FIELDS = [
+        'view_date',
+        'check_date',
     ];
 
     private const PHONE_FIELDS = [
@@ -29,13 +37,76 @@ class ApplicationGeneralController extends Controller
         'pred_phone',
     ];
 
-
-    public function show(int $id): JsonResponse
+    public function show(int $id, ApplicationTimerService $timerService): JsonResponse
     {
-        $application = Application::query()->findOrFail($id);
+        $app = Application::with([
+            'status',
+            'financeStatus',
+            'insuranceCompany:id,name',
+            'ourCompany:id,name',
+            'city:id,name',
+            'mrk:id,name,last_name,patronymic',
+            'spm:id,name,last_name,patronymic',
+            'mentor:id,name,last_name,patronymic',
+            'lawyer:id,name,phone,email,is_cooperating',
+        ])->findOrFail($id);
+        Gate::authorize('view', $app);
+        // Передаем временные параметры из связанных моделей в объект дела
+        $app->time = $app->status->time ?? $app->time ?? 0;
+        $app->day = $app->status->day ?? $app->status->is_day ?? $app->day ?? 0;
+
+        if ($app->financeStatus) {
+            $app->fin_time = $app->financeStatus->fin_time ?? $app->financeStatus->time ?? 0;
+            $app->fin_day = $app->financeStatus->fin_day ?? $app->financeStatus->is_day ?? 0;
+        }
+
+        // Единый расчет таймеров через сервис
+        $timers = $timerService->calculate($app);
+
+        $statusId = (int) ($app->id_status ?? $app->status_id ?? 0);
+        $finStatusId = (int) ($app->finance_status_id ?? $app->id_finance_status ?? 0);
+
+        // Расчет финансовых показателей для карточки
+        $sumSk = (float) ($app->sum_sk ?? 0);
+        $sumZap = (float) ($app->sum_zap ?? 0);
+        $remontSum = (float) ($app->remont_sum ?? 0);
+        $totalCosts = $sumZap + $remontSum;
+        $remains = max(0, $sumSk - $totalCosts);
+
+        // Получаем чистый нормализованный массив заявки
+        $normalizedData = $this->normalizeForResponse($app);
+
+        $result = array_merge($normalizedData, [
+            'id_status' => $statusId,
+            'finance_status_id' => $finStatusId,
+
+            // Структуры таймеров
+            'app_timer' => $timers['app_timer'] ?? null,
+            'finance_timer' => $timers['finance_timer'] ?? null,
+
+            // Плоские поля таймера
+            'max_hour' => $timers['app_timer']['max_hour'] ?? 0,
+            'count_hour' => $timers['app_timer']['count_hour'] ?? 0,
+            'is_overdue' => $timers['app_timer']['is_overdue'] ?? false,
+            'is_day' => $timers['app_timer']['is_day'] ?? false,
+            'time_status_text' => $timers['app_timer']['display_text'] ?? '',
+
+            'max_hour_f' => $timers['finance_timer']['max_hour_f'] ?? 0,
+            'count_hour_f' => $timers['finance_timer']['count_hour_f'] ?? 0,
+
+            // Финансы
+            'sum_sk' => $sumSk,
+            'sum_zap' => $sumZap,
+            'remont_sum' => $remontSum,
+            'total_costs' => $totalCosts,
+            'ic_pay' => (float) ($app->ic_pay ?? 0),
+            'sto_pay' => (float) ($app->sto_pay ?? 0),
+            'remains' => $remains,
+            'remains_percent' => $sumSk > 0 ? (int) round(($remains / $sumSk) * 100) : 0,
+        ]);
 
         return response()->json([
-            'data' => $this->normalizeForResponse($application),
+            'data' => $result,
         ]);
     }
 
@@ -50,6 +121,7 @@ class ApplicationGeneralController extends Controller
             'vin' => ['sometimes', 'nullable', 'string', 'max:32'],
             'mnf_year' => ['sometimes', 'nullable', 'string', 'max:10'],
             'color' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'Color' => ['sometimes', 'nullable', 'string', 'max:100'],
             'mileage' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'vehicle_passport' => ['sometimes', 'nullable', 'string', 'max:100'],
 
@@ -78,6 +150,7 @@ class ApplicationGeneralController extends Controller
 
             // Филиал, СТО и сроки
             'our_company' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'our_company_id' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'id_city' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'id_service' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'view_date' => ['sometimes', 'nullable'],
@@ -102,35 +175,35 @@ class ApplicationGeneralController extends Controller
             $data['vehicle_passport'] = mb_strtoupper(trim($data['vehicle_passport']));
         }
 
+        // Синхронизация филиала в обе колонки (если они обе есть)
+        if (array_key_exists('our_company', $data) || array_key_exists('our_company_id', $data)) {
+            $bId = $data['our_company'] ?? $data['our_company_id'] ?? null;
+            $data['our_company'] = $bId ? (int) $bId : null;
+            $data['our_company_id'] = $bId ? (int) $bId : null;
+        }
+
         $columns = Schema::getColumnListing($application->getTable());
 
-        // Сохраняем старое правило: дата окончания — start_date + 30 рабочих дней.
+        // Расчет даты окончания ремонта
         if (array_key_exists('start_date', $data) && in_array('end_date', $columns, true)) {
             $data['end_date'] = $data['start_date']
                 ? $this->addWorkingDays($data['start_date'], 30)
                 : null;
         }
 
-        $unknownFields = array_values(array_diff(array_keys($data), $columns));
+        // Фильтруем данные строго по существующим колонкам в таблице applications
+        $saveData = array_intersect_key($data, array_flip($columns));
 
-        if ($unknownFields) {
-            throw ValidationException::withMessages([
-                'schema' => [
-                    'В таблице applications отсутствуют колонки: ' . implode(', ', $unknownFields),
-                ],
-            ]);
-        }
-
-        DB::transaction(function () use ($application, $data): void {
-            // Данные уже прошли строгий whitelist и проверку колонок.
-            \Log::info('Saving view_date:', ['value' => $data['view_date'] ?? 'NOT SET']);
-            // forceFill исключает тихую потерю полей из-за незаполненного $fillable.
-            $application->forceFill($data)->save();
+        DB::transaction(function () use ($application, $saveData): void {
+            if (isset($saveData['view_date'])) {
+                Log::info('Saving view_date:', ['value' => $saveData['view_date']]);
+            }
+            $application->forceFill($saveData)->save();
         });
 
         return response()->json([
             'message' => 'Основные данные сохранены',
-            'saved_fields' => array_keys($data),
+            'saved_fields' => array_keys($saveData),
             'data' => $this->normalizeForResponse($application->fresh()),
         ]);
     }
@@ -145,12 +218,10 @@ class ApplicationGeneralController extends Controller
             ? 'services'
             : (Schema::hasTable('service') ? 'service' : null);
 
-        // Точная таблица статусов
         $statusTable = Schema::hasTable('application_statuses')
             ? 'application_statuses'
             : (Schema::hasTable('statuses') ? 'statuses' : null);
 
-        // Загружаем основные статусы дел с полями цвета и таймера
         $statuses = $statusTable ? DB::table($statusTable)
             ->select([
                 'id',
@@ -176,7 +247,6 @@ class ApplicationGeneralController extends Controller
                 'user_group_id' => $s->user_group_id,
             ]) : [];
 
-        // Загружаем финансовые статусы (если есть таблица)
         $financeStatuses = Schema::hasTable('finance_statuses')
             ? DB::table('finance_statuses')
                 ->select([
@@ -193,7 +263,6 @@ class ApplicationGeneralController extends Controller
                 ->map(static fn($fs) => [
                     'id' => (int) $fs->id,
                     'name' => $fs->name,
-                    // Если bg_color еще не заполнен, берем старый color, иначе дефолтный синий
                     'bg_color' => $fs->bg_color ?: ($fs->color ?: '#dbeafe'),
                     'text_color' => $fs->text_color ?: '#1e40af',
                     'time' => $fs->time !== null ? (int) $fs->time : null,
@@ -210,6 +279,7 @@ class ApplicationGeneralController extends Controller
             'services' => $this->tableOptions($serviceTable),
         ]);
     }
+
     public function branchEmployees(Request $request): JsonResponse
     {
         $branchId = $request->filled('branch_id')
@@ -217,7 +287,6 @@ class ApplicationGeneralController extends Controller
             : null;
 
         return response()->json([
-            // МРК — роль 5, наставник — роль 6, запчастист — роль 9.
             'mrk' => $this->staffByRole(5, $branchId),
             'mentors' => $this->staffByRole(6, $branchId),
             'spm' => $this->staffByRole(9, $branchId),
@@ -242,7 +311,13 @@ class ApplicationGeneralController extends Controller
 
         $select = ['id', $nameColumn . ' as name'];
 
-        foreach (['phone', 'email', 'comment', 'is_cooperating'] as $field) {
+        foreach ([
+            'phone',
+            'email',
+            'comment',
+            'is_cooperating',
+            'theme'
+        ] as $field) {
             if (in_array($field, $columns, true)) {
                 $select[] = $field;
             }
@@ -271,7 +346,8 @@ class ApplicationGeneralController extends Controller
             'phone' => ['nullable', 'string', 'max:50'],
             'email' => ['nullable', 'email', 'max:191'],
             'comment' => ['nullable', 'string', 'max:2000'],
-            'is_cooperating' => ['nullable', 'boolean'], // <--- Добавь это
+            'theme' => ['nullable', 'string', 'max:2000'],
+            'is_cooperating' => ['nullable', 'boolean'],
         ]);
 
         $columns = Schema::getColumnListing('lawyers');
@@ -297,21 +373,24 @@ class ApplicationGeneralController extends Controller
             );
         }
         if (in_array('is_cooperating', $columns, true)) {
-            $insert['is_cooperating'] = (int) ($validated['is_cooperating'] ?? 0);
+            $insert['is_cooperating'] = (int) ($validated['is_cooperating'] ?? 1);
         }
 
-        foreach (['email', 'comment'] as $field) {
-            if (in_array($field, $columns, true)) {
-                $insert[$field] = $validated[$field] ?? null;
-            }
+        $commentVal = $validated['comment'] ?? $validated['theme'] ?? null;
+        if (in_array('theme', $columns, true)) {
+            $insert['theme'] = $commentVal;
+        } elseif (in_array('comment', $columns, true)) {
+            $insert['comment'] = $commentVal;
+        }
+
+        if (in_array('email', $columns, true)) {
+            $insert['email'] = $validated['email'] ?? null;
         }
 
         $now = now();
-
         if (in_array('created_at', $columns, true)) {
             $insert['created_at'] = $now;
         }
-
         if (in_array('updated_at', $columns, true)) {
             $insert['updated_at'] = $now;
         }
@@ -324,8 +403,8 @@ class ApplicationGeneralController extends Controller
                 'name' => $insert[$nameColumn],
                 'phone' => $insert['phone'] ?? null,
                 'email' => $insert['email'] ?? null,
-                'comment' => $insert['comment'] ?? null,
-                'is_cooperating' => (bool) ($insert['is_cooperating'] ?? 0),
+                'comment' => $commentVal,
+                'is_cooperating' => (bool) ($insert['is_cooperating'] ?? 1),
             ],
         ], 201);
     }
@@ -334,11 +413,33 @@ class ApplicationGeneralController extends Controller
     {
         $data = $application->toArray();
 
+        // 1. Форматирование дат (Y-m-d)
         foreach (self::DATE_FIELDS as $field) {
-            if (array_key_exists($field, $data) && $field !== 'view_date') {
+            if (array_key_exists($field, $data)) {
                 $data[$field] = $this->dateOnly($data[$field]);
             }
         }
+
+        // 2. Форматирование даты и времени для <input type="datetime-local">
+        foreach (self::DATETIME_FIELDS as $field) {
+            if (!empty($data[$field])) {
+                $data[$field] = str_replace(' ', 'T', substr((string) $data[$field], 0, 16));
+            } else {
+                $data[$field] = null;
+            }
+        }
+
+        // 3. Извлекаем чистый числовой ID филиала напрямую из атрибутов БД
+        // (чтобы связанный объект ourCompany не подменял числовое значение)
+        $rawBranch = $application->getRawOriginal('our_company')
+            ?? $application->getRawOriginal('our_company_id')
+            ?? (is_numeric($data['our_company'] ?? null) ? $data['our_company'] : null)
+            ?? (is_numeric($data['our_company_id'] ?? null) ? $data['our_company_id'] : null);
+
+        $branchId = is_numeric($rawBranch) ? (int) $rawBranch : null;
+
+        $data['our_company'] = $branchId;
+        $data['our_company_id'] = $branchId;
 
         return $data;
     }
@@ -440,7 +541,6 @@ class ApplicationGeneralController extends Controller
             return [];
         }
 
-        // 1. Просто выбираем нужные колонки
         $query = DB::table('users')
             ->join($pivotTable, 'users.id', '=', "{$pivotTable}.user_id")
             ->select([
@@ -455,22 +555,21 @@ class ApplicationGeneralController extends Controller
             $query->where("{$pivotTable}.our_company_id", $branchId);
         }
 
-        // 2. Получаем результат и склеиваем в PHP
         return $query
             ->distinct()
             ->orderBy('users.last_name')
             ->get()
             ->map(function ($row) {
-                // Склеиваем ФИО прямо здесь
                 $fio = trim($row->last_name . ' ' . $row->name . ' ' . $row->patronymic);
                 return [
                     'id' => (int) $row->id,
-                    'name' => $fio ?: 'Без имени' // Если пустое - напишет "Без имени"
+                    'name' => $fio ?: ($row->name ?: 'Без имени')
                 ];
             })
             ->values()
             ->all();
     }
+
     private function firstExistingColumn(array $columns, array $candidates): ?string
     {
         foreach ($candidates as $candidate) {

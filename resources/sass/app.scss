@@ -24,6 +24,24 @@ $border-color-custom: rgba(222, 226, 230, 0.7);
 // ====================================================
 // 3. БАЗОВЫЕ СТИЛИ СТРАНИЦЫ
 // ====================================================
+html,
+body {
+    height: 100% !important;
+    height: 100dvh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    position: fixed !important;
+    width: 100% !important;
+}
+
+#app {
+    height: 100% !important;
+    height: 100dvh !important;
+    width: 100% !important;
+    overflow: hidden !important;
+}
+
 body {
     font-family: $font-family-base;
     background: linear-gradient(135deg, #eef1f5 0%, #e2e7ec 100%);
@@ -671,4 +689,12 @@ a {
 
 .table-scroll-wrapper::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
+}
+
+.modal {
+    z-index: 1055 !important;
+}
+
+.modal-backdrop {
+    z-index: 1050 !important;
 }

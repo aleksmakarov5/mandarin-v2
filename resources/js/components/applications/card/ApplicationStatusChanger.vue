@@ -1,94 +1,77 @@
 <template>
-    <div class="status-changers-wrapper d-flex align-items-center gap-2 flex-wrap flex-lg-nowrap">
-        <!-- 1. Основной статус заявки (всегда) -->
-        <div class="status-widget-block flex-shrink-0">
-            <div class="dropdown">
-                <button class="status-btn dropdown-toggle d-flex align-items-center justify-content-between shadow-sm"
-                    type="button" data-bs-toggle="dropdown" aria-expanded="false" :style="{
-                        backgroundColor: formatColor(currentStatus?.bg_color, '#e2e8f0'),
-                        color: formatColor(currentStatus?.text_color, '#1e293b'),
-                        borderColor: formatColor(currentStatus?.bg_color, '#cbd5e1'),
+    <div class="status-changers-wrapper w-100 d-flex align-items-center gap-1">
+        <!-- 1. ОСНОВНОЙ СТАТУС ДЕЛА -->
+        <div class="status-col flex-grow-1">
+            <div class="dropdown w-100">
+                <button
+                    class="status-pill-btn dropdown-toggle d-flex align-items-center justify-content-between shadow-sm w-100"
+                    type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                    :title="currentStatus?.name || 'Без статуса'" :style="{
+                        backgroundColor: formatColor(currentStatus?.bg_color, '#bae6fd'),
+                        color: formatColor(currentStatus?.text_color, '#0369a1'),
+                        borderColor: formatColor(currentStatus?.bg_color, '#7dd3fc'),
                     }">
-                    <span class="status-title text-truncate me-2">
+                    <span class="status-title-text">
                         {{ currentStatus?.name || 'Без статуса' }}
-                    </span>
-
-                    <span v-if="appDaysCount !== null" class="status-badge">
-                        {{ appDaysCount }}
                     </span>
                 </button>
 
                 <ul class="dropdown-menu dropdown-menu-end shadow border-0 py-1 status-dropdown-menu">
-                    <li v-for="status in statuses" :key="status.id">
-                        <button class="dropdown-item d-flex align-items-center justify-content-between py-1.5 px-3"
-                            type="button" @click="requestStatusChange(status)">
+                    <li v-for="status in statuses" :key="status.id" class="status-dropdown-li">
+                        <button
+                            class="dropdown-item status-touch-item d-flex align-items-center justify-content-between"
+                            type="button" :title="status.name" @click="$emit('change', status)">
                             <span class="d-flex align-items-center text-truncate me-2">
                                 <span class="status-dot me-2 flex-shrink-0"
                                     :style="{ backgroundColor: formatColor(status.bg_color, '#94a3b8') }"></span>
-                                <span class="text-truncate">{{ status.name }}</span>
+                                <span class="text-truncate status-item-name">{{ status.name }}</span>
                             </span>
 
-                            <span v-if="status.time" class="badge bg-light text-muted border font-monospace ms-auto"
-                                style="font-size: 0.7rem;">
-                                {{ status.time }} {{ status.is_day ? 'дн.' : 'ч.' }}
+                            <!-- Норматив времени в рабочих днях -->
+                            <span v-if="status.time"
+                                class="badge bg-light text-muted border font-monospace ms-auto flex-shrink-0 status-time-badge">
+                                {{ status.time }} дн.
                             </span>
                         </button>
                     </li>
                 </ul>
             </div>
-
-            <!-- Полоса остатка времени для основного статуса -->
-            <div class="status-progress-track mt-1" :title="`Остаток времени: ${appProgressPercent}%`">
-                <div class="status-progress-bar" :style="{
-                    width: `${appProgressPercent}%`,
-                    backgroundColor: formatColor(currentStatus?.bg_color, '#3b82f6'),
-                }"></div>
-            </div>
         </div>
 
-        <!-- 2. Финансовый статус (отображается только если ID > 1) -->
-        <div v-if="isFinanceStatusVisible" class="status-widget-block flex-shrink-0">
-            <div class="dropdown">
-                <button class="status-btn dropdown-toggle d-flex align-items-center justify-content-between shadow-sm"
-                    type="button" data-bs-toggle="dropdown" aria-expanded="false" :style="{
-                        backgroundColor: formatColor(currentFinanceStatus?.bg_color, '#0d6efd'),
-                        color: formatColor(currentFinanceStatus?.text_color, '#ffffff'),
-                        borderColor: formatColor(currentFinanceStatus?.bg_color, '#0b5ed7'),
+        <!-- 2. ФИНАНСОВЫЙ СТАТУС (Если ID > 1) -->
+        <div v-if="isFinanceStatusVisible" class="status-col flex-grow-1">
+            <div class="dropdown w-100">
+                <button
+                    class="status-pill-btn dropdown-toggle d-flex align-items-center justify-content-between shadow-sm w-100"
+                    type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                    :title="currentFinanceStatus?.name || 'Фин. статус'" :style="{
+                        backgroundColor: formatColor(currentFinanceStatus?.bg_color, '#e0e7ff'),
+                        color: formatColor(currentFinanceStatus?.text_color, '#4338ca'),
+                        borderColor: formatColor(currentFinanceStatus?.bg_color, '#c7d2fe'),
                     }">
-                    <span class="status-title text-truncate me-2">
-                        {{ currentFinanceStatus?.name || 'АСП согласован' }}
-                    </span>
-
-                    <span v-if="financeDaysCount !== null" class="status-badge">
-                        {{ financeDaysCount }}
+                    <span class="status-title-text">
+                        {{ currentFinanceStatus?.name || 'Фин. статус' }}
                     </span>
                 </button>
 
                 <ul class="dropdown-menu dropdown-menu-end shadow border-0 py-1 status-dropdown-menu">
-                    <li v-for="fStatus in financeStatuses" :key="fStatus.id">
-                        <button class="dropdown-item d-flex align-items-center justify-content-between py-1.5 px-3"
-                            type="button" @click="requestFinanceStatusChange(fStatus)">
+                    <li v-for="fStatus in financeStatuses" :key="fStatus.id" class="status-dropdown-li">
+                        <button
+                            class="dropdown-item status-touch-item d-flex align-items-center justify-content-between"
+                            type="button" :title="fStatus.name" @click="$emit('change-finance', fStatus)">
                             <span class="d-flex align-items-center text-truncate me-2">
                                 <span class="status-dot me-2 flex-shrink-0"
                                     :style="{ backgroundColor: formatColor(fStatus.bg_color, '#94a3b8') }"></span>
-                                <span class="text-truncate">{{ fStatus.name }}</span>
+                                <span class="text-truncate status-item-name">{{ fStatus.name }}</span>
                             </span>
 
-                            <span v-if="fStatus.time" class="badge bg-light text-muted border font-monospace ms-auto"
-                                style="font-size: 0.7rem;">
-                                {{ fStatus.time }} {{ fStatus.is_day ? 'дн.' : 'ч.' }}
+                            <span v-if="fStatus.time || fStatus.fin_time"
+                                class="badge bg-light text-muted border font-monospace ms-auto flex-shrink-0 status-time-badge">
+                                {{ fStatus.time || fStatus.fin_time }} дн.
                             </span>
                         </button>
                     </li>
                 </ul>
-            </div>
-
-            <!-- Полоса остатка времени для финансового статуса -->
-            <div class="status-progress-track mt-1" :title="`Остаток фин. времени: ${financeProgressPercent}%`">
-                <div class="status-progress-bar status-progress-bar--finance" :style="{
-                    width: `${financeProgressPercent}%`,
-                    backgroundColor: formatColor(currentFinanceStatus?.bg_color, '#2563eb'),
-                }"></div>
             </div>
         </div>
     </div>
@@ -98,23 +81,16 @@
 import { computed } from 'vue';
 
 const props = defineProps({
-    // Основной статус
     currentStatus: { type: Object, default: null },
     statuses: { type: Array, default: () => [] },
-    appProgressPercent: { type: Number, default: 70 }, // Задел под прогресс (0-100%)
-    appDaysCount: { type: [Number, String], default: null },
 
-    // Финансовый статус
     financeStatusId: { type: [Number, String], default: null },
     currentFinanceStatus: { type: Object, default: null },
     financeStatuses: { type: Array, default: () => [] },
-    financeProgressPercent: { type: Number, default: 85 }, // Задел под прогресс (0-100%)
-    financeDaysCount: { type: [Number, String], default: null },
 });
 
-const emit = defineEmits(['change', 'change-finance']);
+defineEmits(['change', 'change-finance']);
 
-// Отображать финансовый статус только при finance_status_id > 1
 const isFinanceStatusVisible = computed(() => {
     const fId = Number(props.financeStatusId || props.currentFinanceStatus?.id || 0);
     return fId > 1;
@@ -125,89 +101,127 @@ function formatColor(color, fallback) {
     const trimmed = String(color).trim();
     return trimmed.startsWith('#') || trimmed.startsWith('rgb') ? trimmed : `#${trimmed}`;
 }
-
-function requestStatusChange(status) {
-    emit('change', status);
-}
-
-function requestFinanceStatusChange(status) {
-    emit('change-finance', status);
-}
 </script>
 
 <style scoped>
 .status-changers-wrapper {
-    min-height: 42px;
+    min-width: 0;
+    max-width: 100%;
 }
 
-.status-widget-block {
-    min-width: 140px;
-    max-width: 210px;
+.status-col {
+    min-width: 0;
+    flex: 1 1 0;
 }
 
-.status-btn {
-    width: 100%;
-    height: 32px;
-    border-radius: 16px;
-    padding: 0 12px;
-    font-size: 0.82rem;
+/* Компактная кнопка статуса */
+.status-pill-btn {
+    height: 26px;
+    border-radius: 13px;
+    padding: 0 6px 0 8px;
+    font-size: 0.72rem;
     font-weight: 700;
     border: 1px solid transparent;
     transition: all 0.15s ease-in-out;
+    min-width: 0;
 }
 
-.status-btn:hover,
-.status-btn:focus {
+.status-pill-btn:hover,
+.status-pill-btn:focus {
     filter: brightness(0.95);
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.12) !important;
 }
 
-.status-btn::after {
-    margin-left: 0.4rem;
-    vertical-align: middle;
+.status-pill-btn::after {
+    margin-left: 3px;
+    font-size: 0.65rem;
+    flex-shrink: 0;
 }
 
-.status-title {
-    letter-spacing: 0.1px;
-}
-
-.status-badge {
-    background: rgba(0, 0, 0, 0.2);
-    color: inherit;
-    padding: 1px 6px;
-    border-radius: 8px;
-    font-size: 0.72rem;
-    font-weight: 700;
-    line-height: 1.2;
+.status-title-text {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1;
+    text-align: left;
 }
 
 .status-dot {
-    width: 9px;
-    height: 9px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     display: inline-block;
 }
 
+/* Общие стили выпадающего меню */
 .status-dropdown-menu {
     max-height: 320px;
     overflow-y: auto;
-    min-width: 200px;
-    font-size: 0.85rem;
+    min-width: 230px;
+    z-index: 1060;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+    border-radius: 8px;
 }
 
-/* Дорожка и полоса прогресса (таймера) */
-.status-progress-track {
-    width: 100%;
-    height: 4px;
-    background-color: #e2e8f0;
-    border-radius: 2px;
-    overflow: hidden;
+.status-touch-item {
+    transition: background-color 0.12s ease;
 }
 
-.status-progress-bar {
-    height: 100%;
-    border-radius: 2px;
-    transition: width 0.3s ease;
-    filter: saturate(1.2);
+.status-time-badge {
+    font-size: 0.68rem;
+    padding: 2px 5px;
+    border-radius: 4px;
+}
+
+/* ========================================================= */
+/* ДЕСКТОП: КОМПАКТНЫЙ РЕЖИМ (>= 768px)                      */
+/* ========================================================= */
+@media (min-width: 768px) {
+    .status-touch-item {
+        padding: 5px 10px;
+        font-size: 0.80rem;
+        min-height: 30px;
+    }
+}
+
+/* ========================================================= */
+/* МОБИЛЬНЫЙ ВИД: СЕНСОРНЫЙ ТАЧ-РЕЖИМ (< 768px)             */
+/* ========================================================= */
+@media (max-width: 767.98px) {
+    .status-dropdown-menu {
+        min-width: 260px;
+        max-height: 60vh;
+        /* Занимает до 60% высоты экрана смартфона */
+        border-radius: 12px;
+        padding: 4px 0;
+    }
+
+    .status-dropdown-li:not(:last-child) {
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        /* Тонкий разделитель между пунктами */
+    }
+
+    /* Высота пункта под палец >= 46px */
+    .status-touch-item {
+        min-height: 46px;
+        padding: 10px 14px;
+        font-size: 0.88rem;
+        font-weight: 500;
+    }
+
+    .status-touch-item:active {
+        background-color: #f1f5f9;
+    }
+
+    .status-dot {
+        width: 10px;
+        height: 10px;
+    }
+
+    .status-time-badge {
+        font-size: 0.72rem;
+        padding: 3px 6px;
+    }
 }
 </style>

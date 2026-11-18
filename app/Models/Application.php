@@ -2,56 +2,105 @@
 
 namespace App\Models;
 
+use App\Services\ApplicationTimerService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\Lawyer;
+use App\Models\User;
+
 
 class Application extends Model
 {
     protected $table = 'applications';
-
-    /**
-     * Контроллер сам формирует белый список сохраняемых полей.
-     */
     protected $guarded = ['id'];
 
-    protected $casts = [
-        'id_insuranceCompany' => 'integer',
-        'id_status' => 'integer',
-        'id_MRK' => 'integer',
-        'id_spm' => 'integer',
-        'id_mentor' => 'integer',
-        'id_lawyer' => 'integer',
-        'our_company' => 'integer',
-        'id_city' => 'integer',
-        'id_service' => 'integer',
-        'mileage' => 'integer',
-
-        // В базе: tinyint(1). 1 — мужской, 0 — женский.
-        'gender' => 'integer',
-        'ub_type' => 'integer',
-        'ic_answer' => 'integer',
-        'nds' => 'boolean',
-
-        'DTPdate' => 'date:Y-m-d',
-        'ClientPasport_date' => 'date:Y-m-d',
-        'birthday' => 'date:Y-m-d',
-        'napr_date' => 'date:Y-m-d',
-        'start_date' => 'date:Y-m-d',
-        'end_date' => 'date:Y-m-d',
-        'sp_date' => 'date:Y-m-d',
-        'ic_pay_date' => 'date:Y-m-d',
-        'sto_pay_date' => 'date:Y-m-d',
-        'zp_date' => 'date:Y-m-d',
-        'finish_pay_date' => 'date:Y-m-d',
-        'view_date' => 'datetime:Y-m-d H:i:s',
-
-        'check_date' => 'datetime:Y-m-d H:i:s',
-        'ic_answer_date' => 'datetime:Y-m-d H:i:s',
+    // Поля, автоматически добавляемые в JSON
+    protected $appends = [
+        'is_overdue',
+        'time_status_text',
+        'max_hour',
+        'count_hour',
+        'max_hour_f',
+        'count_hour_f',
+        'app_timer',
+        'finance_timer',
     ];
+
+    protected $casts = [
+        'DTPdate' => 'date',
+        'napr_date' => 'date',
+        'check_date' => 'datetime',
+        'ic_pay_date' => 'date',
+        'sto_pay_date' => 'date',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
+    ];
+
+    /**
+     * Кеш расчета таймеров в рамках одного запроса
+     */
+
+
+
+    public function getAppTimerAttribute(): array
+    {
+        return $this->getTimers()['app_timer'];
+    }
+
+    public function getFinanceTimerAttribute(): array
+    {
+        return $this->getTimers()['finance_timer'];
+    }
+    protected ?array $calculatedTimers = null;
+
+    protected function getTimers(): array
+    {
+        if ($this->calculatedTimers === null) {
+            $this->calculatedTimers = app(ApplicationTimerService::class)->calculate($this);
+        }
+        return $this->calculatedTimers;
+    }
+
+    public function getIsOverdueAttribute(): bool
+    {
+        return $this->getTimers()['app_timer']['is_overdue'];
+    }
+
+    public function getTimeStatusTextAttribute(): string
+    {
+        return $this->getTimers()['app_timer']['display_text'];
+    }
+
+    public function getMaxHourAttribute(): int
+    {
+        return $this->getTimers()['app_timer']['max_hour'];
+    }
+
+    public function getCountHourAttribute(): int
+    {
+        return $this->getTimers()['app_timer']['count_hour'];
+    }
+
+    public function getMaxHourFAttribute(): int
+    {
+        return $this->getTimers()['finance_timer']['max_hour_f'];
+    }
+
+    public function getCountHourFAttribute(): int
+    {
+        return $this->getTimers()['finance_timer']['count_hour_f'];
+    }
+
+    // --- СВЯЗИ ---
 
     public function status(): BelongsTo
     {
         return $this->belongsTo(ApplicationStatus::class, 'id_status');
+    }
+
+    public function financeStatus(): BelongsTo
+    {
+        return $this->belongsTo(FinanceStatus::class, 'id_finance_status');
     }
 
     public function insuranceCompany(): BelongsTo
@@ -79,13 +128,28 @@ class Application extends Model
         return $this->belongsTo(User::class, 'id_spm');
     }
 
-    public function mentor(): BelongsTo
+    public function mentor(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
-        return $this->belongsTo(User::class, 'id_mentor');
+        // В зависимости от того, как колонка называется у вас в БД: id_mentor или mentor_id
+        $foreignKey = \Illuminate\Support\Facades\Schema::hasColumn('applications', 'id_mentor')
+            ? 'id_mentor'
+            : 'mentor_id';
+
+        return $this->belongsTo(User::class, $foreignKey)->withDefault([
+            'name' => 'Без наставника',
+        ]);
     }
 
-    public function lawyer(): BelongsTo
+    public function lawyer(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
-        return $this->belongsTo(Lawyer::class, 'id_lawyer');
+        return $this->belongsTo(Lawyer::class, 'id_lawyer')->withDefault([
+            'name' => 'Без юриста',
+            'is_cooperating' => true,
+        ]);
     }
+
+
+
+
+
 }

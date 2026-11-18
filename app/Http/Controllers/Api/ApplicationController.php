@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use App\Services\ApplicationTimerService;
 
 class ApplicationController extends Controller
 {
@@ -29,159 +30,344 @@ class ApplicationController extends Controller
     ];
 
     /**
-     * Основной реестр дел
+     * Получение реестра дел с фильтрацией и точным расчетом таймеров
      */
     public function index(Request $request): JsonResponse
     {
-        /** @var \App\Models\User $user */
-        $user = $request->user();
-        $tab = $request->input('tab', 'requests');
+        try {
+            /** @var \App\Models\User $user */
+            $user = $request->user();
+            $tab = $request->input('tab', 'requests');
 
-        $query = Application::with([
-            'status',
-            'insuranceCompany:id,name',
-            'ourCompany:id,name',
-            'city:id,name',
-            'mrk:id,name,last_name,patronymic',
-            'spm:id,name,last_name,patronymic',
-            'lawyer:id,name,phone,is_cooperating',
-        ]);
+            // Безопасное формирование связей
+            $withRelations = [];
+            $appInstance = new Application();
 
-        // 1. Фильтр вкладки по статусам (requests, applications, acceptance, archive, trash)
-        // ВАЖНО: если в этой вкладке пользователь выбрал конкретные статусы через мультиселект (status_ids),
-        // используем их. Если НЕ выбрал ничего — берем дефолтные статусы этой вкладки (равно "выбрано всё").
-        if ($request->filled('status_ids')) {
-            $statusIds = is_array($request->status_ids)
-                ? $request->status_ids
-                : explode(',', $request->status_ids);
-            $cleanStatusIds = array_filter(array_map('trim', $statusIds));
-            if (!empty($cleanStatusIds)) {
-                $query->whereIn('id_status', $cleanStatusIds);
+            if (method_exists($appInstance, 'status'))
+                $withRelations[] = 'status';
+            if (method_exists($appInstance, 'financeStatus'))
+                $withRelations[] = 'financeStatus';
+            if (method_exists($appInstance, 'finStatus'))
+                $withRelations[] = 'finStatus';
+            if (method_exists($appInstance, 'insuranceCompany'))
+                $withRelations[] = 'insuranceCompany';
+            if (method_exists($appInstance, 'ourCompany'))
+                $withRelations[] = 'ourCompany';
+            if (method_exists($appInstance, 'city'))
+                $withRelations[] = 'city';
+            if (method_exists($appInstance, 'mrk'))
+                $withRelations[] = 'mrk';
+            if (method_exists($appInstance, 'spm'))
+                $withRelations[] = 'spm';
+            if (method_exists($appInstance, 'lawyer'))
+                $withRelations[] = 'lawyer';
+
+            $query = Application::query()->with($withRelations);
+
+            // 1. Фильтр вкладки по статусам
+            if ($request->filled('status_ids')) {
+                $statusIds = is_array($request->status_ids)
+                    ? $request->status_ids
+                    : explode(',', $request->status_ids);
+                $cleanStatusIds = array_filter(array_map('trim', $statusIds));
+                if (!empty($cleanStatusIds)) {
+                    $query->whereIn('id_status', $cleanStatusIds);
+                }
+            } elseif (isset($this->tabs[$tab])) {
+                $query->whereIn('id_status', $this->tabs[$tab]);
             }
-        } elseif (isset($this->tabs[$tab])) {
-            $query->whereIn('id_status', $this->tabs[$tab]);
-        }
 
-        // 2. Изоляция по филиалам (для сотрудников филиалов, кроме суперадмина)
-        if (!$user->isSystemAdmin()) {
-            $availableBranches = method_exists($user, 'getAvailableBranchIds')
-                ? $user->getAvailableBranchIds()
-                : [];
+            // 2. Изоляция по филиалам
+            if ($user && method_exists($user, 'isSystemAdmin') && !$user->isSystemAdmin()) {
+                $availableBranches = method_exists($user, 'getAvailableBranchIds')
+                    ? $user->getAvailableBranchIds()
+                    : [];
 
-            if (!empty($availableBranches)) {
-                $query->whereIn('our_company', $availableBranches);
+                if (!empty($availableBranches)) {
+                    $query->whereIn('our_company', $availableBranches);
+                }
             }
-        }
 
-        // 3. МУЛЬТИФИЛЬТР ПО СОТРУДНИКАМ (МРК, запчастист, наставник)
-        // Ничего не выбрано => условие не накладывается (выбраны все)
-        // Если выбраны конкретные ID => ищем дела, где сотрудник указан как МРК, запчастист или наставник
-        if ($request->filled('mrk_ids')) {
-            $mrkIds = is_array($request->mrk_ids)
-                ? $request->mrk_ids
-                : explode(',', $request->mrk_ids);
-            $cleanMrkIds = array_filter(array_map('trim', $mrkIds));
+            // 3. Фильтр по сотрудникам
+            if ($request->filled('mrk_ids')) {
+                $mrkIds = is_array($request->mrk_ids)
+                    ? $request->mrk_ids
+                    : explode(',', $request->mrk_ids);
+                $cleanMrkIds = array_filter(array_map('trim', $mrkIds));
 
-            if (!empty($cleanMrkIds)) {
-                $query->where(function ($q) use ($cleanMrkIds) {
-                    $q->whereIn('id_MRK', $cleanMrkIds)
-                        ->orWhereIn('id_spm', $cleanMrkIds);
+                if (!empty($cleanMrkIds)) {
+                    $query->where(function ($q) use ($cleanMrkIds) {
+                        $q->whereIn('id_MRK', $cleanMrkIds)
+                            ->orWhereIn('id_spm', $cleanMrkIds);
 
-                    // Если в таблице есть колонка наставника (id_mentor или mentor_id)
-                    if (\Illuminate\Support\Facades\Schema::hasColumn('applications', 'id_mentor')) {
-                        $q->orWhereIn('id_mentor', $cleanMrkIds);
-                    }
-                    if (\Illuminate\Support\Facades\Schema::hasColumn('applications', 'mentor_id')) {
-                        $q->orWhereIn('mentor_id', $cleanMrkIds);
-                    }
+                        if (Schema::hasColumn('applications', 'id_mentor')) {
+                            $q->orWhereIn('id_mentor', $cleanMrkIds);
+                        }
+                    });
+                }
+            }
+
+            // 4. Фильтр по городам
+            if ($request->filled('city_ids')) {
+                $cityIds = is_array($request->city_ids)
+                    ? $request->city_ids
+                    : explode(',', $request->city_ids);
+                $cleanCityIds = array_filter(array_map('trim', $cityIds));
+                if (!empty($cleanCityIds)) {
+                    $query->whereIn('id_city', $cleanCityIds);
+                }
+            }
+
+            // 5. Фильтр по СК
+            if ($request->filled('insurance_ids')) {
+                $insIds = is_array($request->insurance_ids)
+                    ? $request->insurance_ids
+                    : explode(',', $request->insurance_ids);
+                $cleanInsIds = array_filter(array_map('trim', $insIds));
+                if (!empty($cleanInsIds)) {
+                    $query->whereIn('id_insuranceCompany', $cleanInsIds);
+                }
+            }
+
+            // 6. Фильтр по филиалам
+            if ($request->filled('branch_ids')) {
+                $branchIds = is_array($request->branch_ids)
+                    ? $request->branch_ids
+                    : explode(',', $request->branch_ids);
+                $cleanBranchIds = array_filter(array_map('trim', $branchIds));
+                if (!empty($cleanBranchIds)) {
+                    $query->whereIn('our_company', $cleanBranchIds);
+                }
+            }
+
+            // 7. Фильтр по типу убытка
+            if ($request->filled('ub_types')) {
+                $ubTypes = is_array($request->ub_types)
+                    ? $request->ub_types
+                    : explode(',', $request->ub_types);
+                $cleanUbTypes = array_filter($ubTypes, fn($v) => $v !== '' && $v !== null);
+                if (!empty($cleanUbTypes)) {
+                    $query->whereIn('ub_type', $cleanUbTypes);
+                }
+            }
+
+            // 8. Текстовые поисковые фильтры
+            if ($request->filled('id')) {
+                $query->where('id', 'LIKE', '%' . trim($request->id) . '%');
+            }
+            if ($request->filled('ub_number')) {
+                $ub = trim($request->ub_number);
+                $query->where(function ($q) use ($ub) {
+                    $q->where('numberInsuranceCompanyApplication', 'LIKE', "%{$ub}%")
+                        ->orWhere('ub_number', 'LIKE', "%{$ub}%");
                 });
             }
-        }
-
-        // 4. МУЛЬТИФИЛЬТР ПО ГОРОДАМ
-        // Ничего не выбрано => условие не накладывается (выбраны все)
-        if ($request->filled('city_ids')) {
-            $cityIds = is_array($request->city_ids)
-                ? $request->city_ids
-                : explode(',', $request->city_ids);
-            $cleanCityIds = array_filter(array_map('trim', $cityIds));
-
-            if (!empty($cleanCityIds)) {
-                $query->whereIn('id_city', $cleanCityIds);
+            if ($request->filled('ClientName')) {
+                $query->where('ClientName', 'LIKE', '%' . trim($request->ClientName) . '%');
             }
-        }
-
-        // 5. МУЛЬТИФИЛЬТР ПО СТРАХОВЫМ КОМПАНИЯМ (СК)
-        // Ничего не выбрано => условие не накладывается (выбраны все)
-        if ($request->filled('insurance_ids')) {
-            $insIds = is_array($request->insurance_ids)
-                ? $request->insurance_ids
-                : explode(',', $request->insurance_ids);
-            $cleanInsIds = array_filter(array_map('trim', $insIds));
-
-            if (!empty($cleanInsIds)) {
-                $query->whereIn('id_insuranceCompany', $cleanInsIds);
+            if ($request->filled('ClientPhone')) {
+                $query->where('ClientPhone', 'LIKE', '%' . trim($request->ClientPhone) . '%');
             }
-        }
-
-        // 6. МУЛЬТИФИЛЬТР ПО СТОА / ФИЛИАЛАМ
-        // Ничего не выбрано => условие не накладывается (выбраны все)
-        if ($request->filled('branch_ids')) {
-            $branchIds = is_array($request->branch_ids)
-                ? $request->branch_ids
-                : explode(',', $request->branch_ids);
-            $cleanBranchIds = array_filter(array_map('trim', $branchIds));
-
-            if (!empty($cleanBranchIds)) {
-                $query->whereIn('our_company', $cleanBranchIds);
+            if ($request->filled('CarModel')) {
+                $query->where('CarModel', 'LIKE', '%' . trim($request->CarModel) . '%');
             }
-        }
-
-        // 7. МУЛЬТИФИЛЬТР ПО ТИПУ УБЫТКА (0 - ОСАГО, 1 - КАСКО)
-        // Ничего не выбрано => условие не накладывается (выбраны все)
-        if ($request->filled('ub_types')) {
-            $ubTypes = is_array($request->ub_types)
-                ? $request->ub_types
-                : explode(',', $request->ub_types);
-            $cleanUbTypes = array_filter($ubTypes, fn($v) => $v !== '' && $v !== null);
-
-            if (!empty($cleanUbTypes)) {
-                $query->whereIn('ub_type', $cleanUbTypes);
+            if ($request->filled('gnz')) {
+                $query->where('gnz', 'LIKE', '%' . trim($request->gnz) . '%');
             }
-        }
+            if ($request->filled('vin')) {
+                $query->where('vin', 'LIKE', '%' . trim($request->vin) . '%');
+            }
+            if ($request->filled('sto_name')) {
+                $query->where('service_name', 'LIKE', '%' . trim($request->sto_name) . '%');
+            }
 
-        // 8. ТЕКСТОВЫЕ ФИЛЬТРЫ ИЗ ВТОРОЙ СТРОКИ ШАПКИ
-        if ($request->filled('id')) {
-            $query->where('id', 'LIKE', '%' . trim($request->id) . '%');
-        }
-        if ($request->filled('ub_number')) {
-            $ub = trim($request->ub_number);
-            $query->where(function ($q) use ($ub) {
-                $q->where('numberInsuranceCompanyApplication', 'LIKE', "%{$ub}%")
-                    ->orWhere('ub_number', 'LIKE', "%{$ub}%");
+            // 9. Общий поиск
+            if ($request->filled('search')) {
+                $s = trim($request->search);
+                $query->where(function ($q) use ($s) {
+                    $q->where('id', 'LIKE', "%{$s}%")
+                        ->orWhere('numberInsuranceCompanyApplication', 'LIKE', "%{$s}%")
+                        ->orWhere('ub_number', 'LIKE', "%{$s}%")
+                        ->orWhere('CarModel', 'LIKE', "%{$s}%")
+                        ->orWhere('gnz', 'LIKE', "%{$s}%")
+                        ->orWhere('vin', 'LIKE', "%{$s}%")
+                        ->orWhere('ClientName', 'LIKE', "%{$s}%")
+                        ->orWhere('ClientPhone', 'LIKE', "%{$s}%");
+                });
+            }
+
+            $perPage = (int) $request->input('per_page', 50);
+            $paginator = $query->orderBy('id', 'desc')->paginate($perPage);
+
+            // Подгружаем справочники юристов
+            $lawyersMap = [];
+            if (Schema::hasTable('lawyers')) {
+                $lawyersMap = \Illuminate\Support\Facades\DB::table('lawyers')
+                    ->select('id', 'name', 'phone', Schema::hasColumn('lawyers', 'is_cooperating') ? 'is_cooperating' : \Illuminate\Support\Facades\DB::raw('1 as is_cooperating'))
+                    ->get()
+                    ->keyBy('id')
+                    ->toArray();
+            }
+
+            // Подгружаем справочник финансовых статусов со всеми возможными полями
+            $finStatusesMap = [];
+            if (Schema::hasTable('finance_statuses')) {
+                $finColumns = Schema::getColumnListing('finance_statuses');
+                $selectCols = ['id', 'name'];
+
+                if (in_array('fin_time', $finColumns))
+                    $selectCols[] = 'fin_time';
+                if (in_array('time', $finColumns))
+                    $selectCols[] = 'time';
+                if (in_array('fin_day', $finColumns))
+                    $selectCols[] = 'fin_day';
+                if (in_array('is_day', $finColumns))
+                    $selectCols[] = 'is_day';
+                if (in_array('day', $finColumns))
+                    $selectCols[] = 'day';
+
+                $finStatusesMap = \Illuminate\Support\Facades\DB::table('finance_statuses')
+                    ->select($selectCols)
+                    ->get()
+                    ->keyBy('id')
+                    ->toArray();
+            }
+
+            // 10. Сервис расчета таймеров
+            $timerService = null;
+            if (class_exists(\App\Services\ApplicationTimerService::class)) {
+                $timerService = app(\App\Services\ApplicationTimerService::class);
+            }
+
+            $paginator->getCollection()->transform(function ($app) use ($timerService, $tab, $lawyersMap, $finStatusesMap) {
+                // Юрист: если связь пуста, но есть id_lawyer
+                $lawyerId = (int) ($app->id_lawyer ?? $app->lawyer_id ?? 0);
+                if (!$app->relationLoaded('lawyer') || !$app->lawyer) {
+                    if ($lawyerId > 0 && isset($lawyersMap[$lawyerId])) {
+                        $app->setRelation('lawyer', (object) $lawyersMap[$lawyerId]);
+                        $app->lawyer = (object) $lawyersMap[$lawyerId];
+                    }
+                }
+
+                // Фин. статус: привязка из справочника
+                $finId = (int) ($app->finance_status_id ?? $app->id_finance_status ?? $app->finance_statuses_id ?? 0);
+                if ((!$app->relationLoaded('financeStatus') || !$app->financeStatus) && $finId > 0 && isset($finStatusesMap[$finId])) {
+                    $app->setRelation('financeStatus', (object) $finStatusesMap[$finId]);
+                    $app->financeStatus = (object) $finStatusesMap[$finId];
+                }
+
+                // Нормализация параметров времени для фин. статуса
+                $finObj = $app->financeStatus ?? $app->finStatus ?? null;
+                $finTime = 0;
+                $finDay = 0;
+
+                if ($finObj) {
+                    $finTime = (int) ($finObj->fin_time ?? $finObj->time ?? 0);
+                    $finDay = (int) ($finObj->fin_day ?? $finObj->is_day ?? $finObj->day ?? 0);
+                }
+
+                $app->fin_time = $finTime;
+                $app->fin_day = $finDay;
+                $app->finance_statuses_id = $finId;
+
+                // Основной статус: нормализация времени
+                $app->time = (int) ($app->status->time ?? $app->time ?? 0);
+                $app->day = (int) ($app->status->day ?? $app->status->is_day ?? $app->day ?? 0);
+
+                try {
+                    if ($timerService) {
+                        $timers = $timerService->calculate($app);
+
+                        $app->app_timer = $timers['app_timer'] ?? null;
+                        $app->finance_timer = $timers['finance_timer'] ?? null;
+
+                        $app->max_hour = $timers['app_timer']['max_hour'] ?? 0;
+                        $app->count_hour = $timers['app_timer']['count_hour'] ?? 0;
+                        $app->is_overdue = $timers['app_timer']['is_overdue'] ?? false;
+                        $app->is_day = $timers['app_timer']['is_day'] ?? false;
+                        $app->time_status_text = $timers['app_timer']['display_text'] ?? '';
+
+                        $app->max_hour_f = $timers['finance_timer']['max_hour_f'] ?? 0;
+                        $app->count_hour_f = $timers['finance_timer']['count_hour_f'] ?? 0;
+                    } else {
+                        $app->app_timer = null;
+                        $app->finance_timer = null;
+                        $app->is_overdue = false;
+                        $app->is_day = false;
+                        $app->time_status_text = '';
+                    }
+                } catch (\Throwable $te) {
+                    $app->app_timer = null;
+                    $app->finance_timer = null;
+                    $app->is_overdue = false;
+                    $app->is_day = false;
+                    $app->time_status_text = '';
+                }
+
+                // Название финансового статуса для фронтенда
+                $app->finance_status_name = $finObj->name ?? $app->soglas_title ?? '';
+
+                // Финансы
+                $sumSk = (float) ($app->sum_sk ?? 0);
+                $sumZap = (float) ($app->sum_zap ?? 0);
+                $remontSum = (float) ($app->remont_sum ?? 0);
+                $totalCosts = $sumZap + $remontSum;
+                $remains = max(0, $sumSk - $totalCosts);
+
+                $app->sum_sk = $sumSk;
+                $app->sum_zap = $sumZap;
+                $app->remont_sum = $remontSum;
+                $app->total_costs = $totalCosts;
+                $app->ic_pay = (float) ($app->ic_pay ?? 0);
+                $app->sto_pay = (float) ($app->sto_pay ?? 0);
+                $app->remains = $remains;
+                $app->remains_percent = $sumSk > 0 ? (int) round(($remains / $sumSk) * 100) : 0;
+
+                return $app;
             });
-        }
-        if ($request->filled('ClientName')) {
-            $query->where('ClientName', 'LIKE', '%' . trim($request->ClientName) . '%');
-        }
-        if ($request->filled('ClientPhone')) {
-            $query->where('ClientPhone', 'LIKE', '%' . trim($request->ClientPhone) . '%');
-        }
-        if ($request->filled('CarModel')) {
-            $query->where('CarModel', 'LIKE', '%' . trim($request->CarModel) . '%');
-        }
-        if ($request->filled('gnz')) {
-            $query->where('gnz', 'LIKE', '%' . trim($request->gnz) . '%');
-        }
-        if ($request->filled('vin')) {
-            $query->where('vin', 'LIKE', '%' . trim($request->vin) . '%');
-        }
 
-        $perPage = (int) $request->input('per_page', 50);
-        $result = $query->orderBy('id', 'desc')->paginate($perPage);
+            return response()->json($paginator);
+        } catch (\Throwable $e) {
+            Log::error('Ошибка в ApplicationController::index: ' . $e->getMessage(), [
+                'file' => $e->getFile() . ':' . $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
 
-        return response()->json($result);
+            return response()->json([
+                'error' => true,
+                'message' => $e->getMessage(),
+                'location' => basename($e->getFile()) . ':' . $e->getLine(),
+            ], 500);
+        }
     }
+
+    /**
+     * Безопасный расчет финансовых сумм для одного дела
+     */
+    protected function calculateFinances($app): array
+    {
+        $sumSk = (float) ($app->sum_sk ?? 0);
+        $sumZap = (float) ($app->sum_zap ?? 0);
+        $remontSum = (float) ($app->remont_sum ?? 0);
+        $icPay = (float) ($app->ic_pay ?? 0);
+        $stoPay = (float) ($app->sto_pay ?? 0);
+
+        $totalCosts = $sumZap + $remontSum;
+        $remains = max(0, $sumSk - $totalCosts);
+        $remainsPercent = $sumSk > 0 ? (int) round(($remains / $sumSk) * 100) : 0;
+
+        return [
+            'sum_sk' => $sumSk,
+            'sum_zap' => $sumZap,
+            'remont_sum' => $remontSum,
+            'total_costs' => $totalCosts,
+            'ic_pay' => $icPay,
+            'sto_pay' => $stoPay,
+            'remains' => $remains,
+            'remains_percent' => $remainsPercent,
+        ];
+    }
+
 
     /**
      * Справочники для фильтров реестра
@@ -419,67 +605,7 @@ class ApplicationController extends Controller
     /**
      * Безопасный расчет финансовых показателей дела
      */
-    protected function calculateFinances(Application $app): array
-    {
-        // 1. Сумма СК (согласованная сумма)
-        $sumSk = (float) ($app->sum_sk ?? 0);
 
-        // 2. Сумма запчастей: если в таблице applications есть колонка sum_zap, берем ее,
-        // либо пробуем посчитать из связанной таблицы безопасно
-        $sumZap = (float) ($app->sum_zap ?? 0);
-        if ($sumZap === 0.0 && \Illuminate\Support\Facades\Schema::hasTable('spare_parts')) {
-            try {
-                $column = \Illuminate\Support\Facades\Schema::hasColumn('spare_parts', 'price')
-                    ? 'price'
-                    : (\Illuminate\Support\Facades\Schema::hasColumn('spare_parts', 'cost') ? 'cost' : null);
-
-                if ($column) {
-                    $sumZap = (float) \Illuminate\Support\Facades\DB::table('spare_parts')
-                        ->where('application_id', $app->id)
-                        ->sum($column);
-                }
-            } catch (\Throwable $e) {
-                $sumZap = (float) ($app->sum_zap ?? 0);
-            }
-        }
-
-        // 3. Сумма ремонта / работ
-        $remontSum = (float) ($app->remont_sum ?? 0);
-        if ($remontSum === 0.0 && \Illuminate\Support\Facades\Schema::hasTable('works')) {
-            try {
-                $column = \Illuminate\Support\Facades\Schema::hasColumn('works', 'price')
-                    ? 'price'
-                    : (\Illuminate\Support\Facades\Schema::hasColumn('works', 'cost') ? 'cost' : null);
-
-                if ($column) {
-                    $remontSum = (float) \Illuminate\Support\Facades\DB::table('works')
-                        ->where('application_id', $app->id)
-                        ->sum($column);
-                }
-            } catch (\Throwable $e) {
-                $remontSum = (float) ($app->remont_sum ?? 0);
-            }
-        }
-
-        // 4. Затраты, оплаты и остаток
-        $totalCosts = $sumZap + $remontSum;
-        $remains = $sumSk - $totalCosts;
-        $remainsPercent = $sumSk > 0 ? round(($remains / $sumSk) * 100) : 0;
-
-        $icPay = (float) ($app->ic_pay ?? 0);
-        $stoPay = (float) ($app->sto_pay ?? 0);
-
-        return [
-            'sum_sk' => $sumSk,
-            'sum_zap' => $sumZap,
-            'remont_sum' => $remontSum,
-            'total_costs' => $totalCosts,
-            'remains' => $remains,
-            'remains_percent' => $remainsPercent,
-            'ic_pay' => $icPay,
-            'sto_pay' => $stoPay,
-        ];
-    }
 
     /**
      * Подсчет рабочих дней (исключая субботы, воскресенья и официальные праздники РФ)

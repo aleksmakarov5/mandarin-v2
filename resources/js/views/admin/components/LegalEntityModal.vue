@@ -1,83 +1,88 @@
 <template>
-    <div class="modal fade" id="legalEntityModal" tabindex="-1" ref="modalRef">
-        <div class="modal-dialog modal-dialog-centered modal-lg">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-light border-bottom py-3">
-                    <h5 class="modal-title fw-bold text-dark">
-                        <i class="bi me-2 text-primary"
-                            :class="isEdit ? 'bi-pencil-square' : 'bi-plus-circle-fill'"></i>
-                        {{ isEdit ? 'Редактировать юр. лицо' : 'Новое юр. лицо' }}
-                    </h5>
-                    <button type="button" class="btn-close" @click="closeModal"></button>
-                </div>
-                <form @submit.prevent="handleSubmit">
-                    <div class="modal-body p-4">
-                        <div class="row g-3">
-                            <div class="col-12 col-md-6">
-                                <label class="form-label small fw-semibold text-muted">Краткое название *</label>
-                                <input v-model="form.name" type="text" class="form-control" placeholder="ООО «Мандарин»"
-                                    required />
-                            </div>
-                            <div class="col-12 col-md-6">
-                                <label class="form-label small fw-semibold text-muted">ИНН</label>
-                                <input v-model="form.inn" type="text" class="form-control" placeholder="7700000000" />
-                            </div>
-                            <div class="col-12 col-md-6">
-                                <label class="form-label small fw-semibold text-muted">КПП</label>
-                                <input v-model="form.kpp" type="text" class="form-control" placeholder="770101001" />
-                            </div>
-                            <div class="col-12 col-md-6">
-                                <label class="form-label small fw-semibold text-muted">ОГРН</label>
-                                <input v-model="form.ogrn" type="text" class="form-control" />
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label small fw-semibold text-muted">Полное фирменное
-                                    наименование</label>
-                                <input v-model="form.full_name" type="text" class="form-control"
-                                    placeholder="Общество с ограниченной ответственностью «...»" />
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label small fw-semibold text-muted">Юридический адрес</label>
-                                <input v-model="form.legal_address" type="text" class="form-control" />
-                            </div>
-                            <div class="col-12 col-md-6">
-                                <label class="form-label small fw-semibold text-muted">Телефон</label>
-                                <input v-model="form.phone" type="text" class="form-control" />
-                            </div>
-                            <div class="col-12 col-md-6">
-                                <label class="form-label small fw-semibold text-muted">Email</label>
-                                <input v-model="form.email" type="email" class="form-control" />
-                            </div>
-                            <div class="col-12 col-md-6">
-                                <label class="form-label small fw-semibold text-muted">ФИО Руководителя</label>
-                                <input v-model="form.director_name" type="text" class="form-control" />
-                            </div>
-                            <div class="col-12 col-md-6">
-                                <label class="form-label small fw-semibold text-muted">Банк</label>
-                                <input v-model="form.bank_name" type="text" class="form-control" />
-                            </div>
-                            <div class="col-12 col-md-6">
-                                <label class="form-label small fw-semibold text-muted">БИК</label>
-                                <input v-model="form.bik" type="text" class="form-control" />
-                            </div>
-                            <div class="col-12 col-md-6">
-                                <label class="form-label small fw-semibold text-muted">Расчетный счет</label>
-                                <input v-model="form.checking_account" type="text" class="form-control" />
+    <Teleport to="body">
+
+        <div class="modal fade" id="legalEntityModal" tabindex="-1" ref="modalRef">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content border-0 shadow-lg">
+                    <div class="modal-header bg-light border-bottom py-3">
+                        <h5 class="modal-title fw-bold text-dark">
+                            <i class="bi me-2 text-primary"
+                                :class="isEdit ? 'bi-pencil-square' : 'bi-plus-circle-fill'"></i>
+                            {{ isEdit ? 'Редактировать юр. лицо' : 'Новое юр. лицо' }}
+                        </h5>
+                        <button type="button" class="btn-close" @click="closeModal"></button>
+                    </div>
+                    <form @submit.prevent="handleSubmit">
+                        <div class="modal-body p-4">
+                            <div class="row g-3">
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small fw-semibold text-muted">Краткое название *</label>
+                                    <input v-model="form.name" type="text" class="form-control"
+                                        placeholder="ООО «Мандарин»" required />
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small fw-semibold text-muted">ИНН</label>
+                                    <input v-model="form.inn" type="text" class="form-control"
+                                        placeholder="7700000000" />
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small fw-semibold text-muted">КПП</label>
+                                    <input v-model="form.kpp" type="text" class="form-control"
+                                        placeholder="770101001" />
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small fw-semibold text-muted">ОГРН</label>
+                                    <input v-model="form.ogrn" type="text" class="form-control" />
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label small fw-semibold text-muted">Полное фирменное
+                                        наименование</label>
+                                    <input v-model="form.full_name" type="text" class="form-control"
+                                        placeholder="Общество с ограниченной ответственностью «...»" />
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label small fw-semibold text-muted">Юридический адрес</label>
+                                    <input v-model="form.legal_address" type="text" class="form-control" />
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small fw-semibold text-muted">Телефон</label>
+                                    <input v-model="form.phone" type="text" class="form-control" />
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small fw-semibold text-muted">Email</label>
+                                    <input v-model="form.email" type="email" class="form-control" />
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small fw-semibold text-muted">ФИО Руководителя</label>
+                                    <input v-model="form.director_name" type="text" class="form-control" />
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small fw-semibold text-muted">Банк</label>
+                                    <input v-model="form.bank_name" type="text" class="form-control" />
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small fw-semibold text-muted">БИК</label>
+                                    <input v-model="form.bik" type="text" class="form-control" />
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label small fw-semibold text-muted">Расчетный счет</label>
+                                    <input v-model="form.checking_account" type="text" class="form-control" />
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div class="modal-footer bg-light border-top py-2 px-4 d-flex justify-content-between">
-                        <button type="button" class="btn btn-outline-secondary btn-sm"
-                            @click="closeModal">Отмена</button>
-                        <button type="submit" class="btn btn-primary btn-sm px-4 fw-semibold" :disabled="loading">
-                            <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>
-                            {{ isEdit ? 'Сохранить' : 'Создать' }}
-                        </button>
-                    </div>
-                </form>
+                        <div class="modal-footer bg-light border-top py-2 px-4 d-flex justify-content-between">
+                            <button type="button" class="btn btn-outline-secondary btn-sm"
+                                @click="closeModal">Отмена</button>
+                            <button type="submit" class="btn btn-primary btn-sm px-4 fw-semibold" :disabled="loading">
+                                <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>
+                                {{ isEdit ? 'Сохранить' : 'Создать' }}
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
-    </div>
+    </Teleport>
 </template>
 
 <script setup>

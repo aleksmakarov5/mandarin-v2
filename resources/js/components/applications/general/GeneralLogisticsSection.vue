@@ -7,9 +7,10 @@
         <div class="card-body p-3">
             <div class="row g-2 mb-3">
                 <div class="col-12 col-md-4">
-                    <label class="form-label">Наш филиал</label>
-                    <select v-model.number="form.our_company" class="form-select form-select-sm">
-                        <option :value="null">Не выбран</option>
+                    <label class="form-label small fw-semibold text-muted mb-1">Наш филиал (СТОА) *</label>
+                    <select v-model.number="form.our_company" class="form-select form-select-sm"
+                        @change="$emit('commit')">
+                        <option :value="null">-- Не выбран --</option>
                         <option v-for="branch in branches" :key="branch.id" :value="Number(branch.id)">
                             {{ branch.name }}
                         </option>
@@ -94,6 +95,14 @@ function commit(event) {
     if (['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target?.tagName)) {
         emit('commit');
     }
+}
+
+function onBranchChange(event) {
+    const val = event.target.value;
+    props.form.our_company = (val !== null && val !== undefined && val !== '' && !isNaN(Number(val)))
+        ? Number(val)
+        : null;
+    emit('commit');
 }
 </script>
 

@@ -3,122 +3,245 @@
 namespace App\Services;
 
 use Carbon\Carbon;
+use DateTimeInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class ApplicationTimerService
 {
     /**
-     * Расчет параметров таймера для основного или финансового статуса
+     * Расчёт таймеров заявки
+     *
+     * @param object|array $app Заявка
+     * @return array{app_timer: array, finance_timer: array}
      */
-    public function calculate(object|array $application, ?object $status, string $type = 'app'): array
+    public function calculate(object|array $app): array
     {
-        $app = (object) $application;
+        $app = (object) $app;
 
-        if (!$status || empty($status->time)) {
-            return [
-                'has_timer' => false,
-                'max_time' => 0,
-                'current_time' => 0,
-                'percent' => 100,
-                'is_overdue' => false,
-                'is_day' => true,
-                'text' => null,
-            ];
+        $tz = 'Europe/Moscow';
+        $current = Carbon::now($tz);
+        $nowTs = $current->timestamp;
+
+        // Безопасный парсинг даты
+        $parseDate = function ($rawDate) use ($tz, $current): Carbon {
+            if (empty($rawDate)) {
+                return $current->copy();
+            }
+
+            if ($rawDate instanceof DateTimeInterface) {
+                $str = $rawDate->format('Y-m-d H:i:s');
+            } else {
+                $str = (string) $rawDate;
+            }
+
+            $cleanStr = substr(trim($str), 0, 19);
+
+            try {
+                return Carbon::createFromFormat('Y-m-d H:i:s', $cleanStr, $tz) ?: Carbon::parse($cleanStr, $tz);
+            } catch (\Throwable) {
+                return Carbon::parse($cleanStr, $tz);
+            }
+        };
+
+        // -------------------------------------------------------------
+        // 1. ОСНОВНОЙ СТАТУС ДЕЛА
+        // -------------------------------------------------------------
+        $idStatus = (int) ($app->id_status ?? $app->status_id ?? 0);
+
+        $statusObj = $app->status ?? null;
+        if (!$statusObj && $idStatus > 0 && Schema::hasTable('application_statuses')) {
+            $statusObj = DB::table('application_statuses')->where('id', $idStatus)->first();
         }
 
-        $maxTime = (int) $status->time;
-        $isDay = (bool) ($status->is_day ?? true);
+        $timeDays = (int) ($app->time ?? $statusObj->time ?? 0);
 
-        // 1. Определение контрольной даты старта по логике статусов
-        $startDate = $this->resolveStartDate($app, $status, $type);
+        $rawMaxHours = 0;
+        $rawCountHours = 0;
 
-        if (!$startDate) {
-            return [
-                'has_timer' => true,
-                'max_time' => $maxTime,
-                'current_time' => $maxTime,
-                'percent' => 100,
-                'is_overdue' => false,
-                'is_day' => $isDay,
-                'text' => "{$maxTime} " . ($isDay ? 'дн.' : 'ч.'),
-            ];
-        }
+        if ($idStatus < 11) {
+            $start = $parseDate($app->created_at ?? null);
+            $endDate = WorkCalendar::create($start)->addWorkDays($timeDays)->getCarbon();
 
-        // 2. Расчет дедлайна с учетом рабочих дней (Weekdays)
-        $start = Carbon::parse($startDate);
-        $now = Carbon::now();
+            $rawMaxHours = (int) ceil(($endDate->timestamp - $start->timestamp) / 3600);
+            $diffSeconds = $endDate->timestamp - $nowTs;
+            $rawCountHours = (int) ($diffSeconds >= 0 ? ceil($diffSeconds / 3600) : floor($diffSeconds / 3600));
 
-        if ($isDay) {
-            // Добавляем рабочие дни (пн-пт)
-            $deadline = (clone $start)->addWeekdays($maxTime)->endOfDay();
+        } elseif ($idStatus === 11) {
+            $start = $parseDate($app->check_date ?: ($app->created_at ?? null));
+            $endDate = WorkCalendar::create($start)->addWorkDays($timeDays)->getCarbon();
 
-            // Считаем остаток рабочих дней
-            $diffDays = (int) $now->diffInWeekdays($deadline, false);
+            $rawMaxHours = (int) ceil(($endDate->timestamp - $start->timestamp) / 3600);
+            $diffSeconds = $endDate->timestamp - $nowTs;
+            $rawCountHours = (int) ($diffSeconds >= 0 ? ceil($diffSeconds / 3600) : floor($diffSeconds / 3600));
 
-            // Если дата просрочена, diffInWeekdays возвращает отрицательное число
-            $isOverdue = $now->greaterThan($deadline);
-            $currentTime = $isOverdue ? -abs($diffDays) : max(0, $diffDays);
+        } elseif ($timeDays !== 0) {
+            $start = $parseDate($app->check_date ?: ($app->created_at ?? null));
+            $endDate = WorkCalendar::create($start)->addWorkDays($timeDays)->getCarbon();
+            $diffSeconds = $endDate->timestamp - $nowTs;
 
-            $percent = $maxTime > 0
-                ? max(0, min(100, round(($currentTime / $maxTime) * 100)))
-                : 0;
+            $rawMaxHours = (int) ceil(($endDate->timestamp - $start->timestamp) / 3600);
+            $rawCountHours = (int) ($diffSeconds >= 0 ? ceil($diffSeconds / 3600) : floor($diffSeconds / 3600));
 
-            $text = $isOverdue
-                ? 'Просрочено на ' . abs($currentTime) . ' дн.'
-                : "Осталось {$currentTime} из {$maxTime} дн.";
         } else {
-            // Расчет в часах
-            $deadline = (clone $start)->addHours($maxTime);
-            $diffHours = (int) $now->diffInHours($deadline, false);
+            // Динамические статусы (time == 0)
+            if ($idStatus === 17) {
+                $start = $parseDate($app->start_date ?: ($app->napr_date ?: ($app->created_at ?? null)));
+                $endDate = $app->end_date ? $parseDate($app->end_date) : $start;
 
-            $isOverdue = $now->greaterThan($deadline);
-            $currentTime = $isOverdue ? -abs($diffHours) : max(0, $diffHours);
+                $rawMaxHours = (int) ceil(($endDate->timestamp - $start->timestamp) / 3600);
+                $diffSeconds = $endDate->timestamp - $nowTs;
+                $rawCountHours = (int) ($diffSeconds >= 0 ? ceil($diffSeconds / 3600) : floor($diffSeconds / 3600));
 
-            $percent = $maxTime > 0
-                ? max(0, min(100, round(($currentTime / $maxTime) * 100)))
-                : 0;
+            } elseif ($idStatus === 13) {
+                $start = $parseDate($app->check_date ?: ($app->created_at ?? null));
+                $view = $app->view_date ? $parseDate($app->view_date) : $start;
+                $diffSeconds = $view->timestamp - $nowTs;
 
-            $text = $isOverdue
-                ? 'Просрочено на ' . abs($currentTime) . ' ч.'
-                : "Осталось {$currentTime} из {$maxTime} ч.";
+                $rawMaxHours = (int) ceil(($view->timestamp - $start->timestamp) / 3600);
+                $rawCountHours = (int) ($diffSeconds >= 0 ? ceil($diffSeconds / 3600) : floor($diffSeconds / 3600));
+
+            } elseif ($idStatus === 15) {
+                $start = $parseDate($app->check_date ?: ($app->created_at ?? null));
+                $sp = $app->sp_date ? $parseDate($app->sp_date) : $start;
+
+                $rawMaxHours = (int) ceil(($sp->timestamp - $start->timestamp) / 3600);
+                $diffSeconds = $sp->timestamp - $nowTs;
+                $rawCountHours = (int) ($diffSeconds >= 0 ? ceil($diffSeconds / 3600) : floor($diffSeconds / 3600));
+            }
         }
+
+        $appTimerData = $this->transformHoursToOutput($rawCountHours, $rawMaxHours, $idStatus);
+
+        // -------------------------------------------------------------
+        // 2. ФИНАНСОВЫЙ СТАТУС (max_hour_f / count_hour_f)
+        // -------------------------------------------------------------
+        $finStatusId = (int) ($app->finance_status_id ?? $app->id_finance_status ?? 0);
+
+        $finStatusObj = $app->financeStatus ?? $app->finance_status ?? null;
+        if (!$finStatusObj && $finStatusId > 1 && Schema::hasTable('finance_statuses')) {
+            $finStatusObj = DB::table('finance_statuses')->where('id', $finStatusId)->first();
+        }
+
+        $finTimeDays = (int) (
+            $app->fin_time ??
+            $app->finance_time ??
+            $finStatusObj->time ??
+            $finStatusObj->fin_time ??
+            0
+        );
+
+        $rawMaxHoursF = 0;
+        $rawCountHoursF = 0;
+
+        if ($finStatusId > 1 && $finTimeDays > 0) {
+            $rawFinStart = $app->ic_answer_date ?: ($app->napr_date ?: ($app->check_date ?: ($app->updated_at ?? null)));
+            $finStart = $parseDate($rawFinStart);
+            $finEnd = WorkCalendar::create($finStart)->addWorkDays($finTimeDays)->getCarbon();
+
+            $rawMaxHoursF = (int) max(1, ceil(($finEnd->timestamp - $finStart->timestamp) / 3600));
+            $diffSec = $finEnd->timestamp - $nowTs;
+            $rawCountHoursF = (int) ($diffSec >= 0 ? ceil($diffSec / 3600) : floor($diffSec / 3600));
+        }
+
+        $finTimerData = $this->transformHoursToOutput($rawCountHoursF, $rawMaxHoursF, $finStatusId, true);
 
         return [
-            'has_timer' => true,
-            'max_time' => $maxTime,
-            'current_time' => $currentTime,
-            'percent' => $isOverdue ? 100 : $percent,
-            'is_overdue' => $isOverdue,
-            'is_day' => $isDay,
-            'text' => $text,
+            'app_timer' => [
+                'has_timer' => $rawMaxHours > 0,
+                'max_hour' => $appTimerData['max'],       // отдаем уже поделенное: например, 9 (дней) или 18 (часов)
+                'count_hour' => $appTimerData['count'],     // отдаем уже поделенное: например, 8 (дней) или 18 (часов)
+                'is_overdue' => $appTimerData['is_overdue'],
+                'is_day' => $appTimerData['is_day'],
+                'display_text' => $appTimerData['display_text'],
+                'percent' => $this->calcPercent($rawCountHours, $rawMaxHours),
+            ],
+            'finance_timer' => [
+                'has_timer' => $rawMaxHoursF > 0,
+                'max_hour_f' => $finTimerData['max'],       // отдаем уже поделенное: например, 44 (дня)
+                'count_hour_f' => $finTimerData['count'],     // отдаем уже поделенное: например, 5 (дней)
+                'is_overdue' => $finTimerData['is_overdue'],
+                'is_day' => $finTimerData['is_day'],
+                'display_text' => $finTimerData['display_text'],
+                'percent' => $this->calcPercent($rawCountHoursF, $rawMaxHoursF),
+            ],
         ];
     }
 
     /**
-     * Определение исходной даты в зависимости от логики статуса
+     * Делим на 24, если countHours >= 24, иначе отдаем часы
      */
-    private function resolveStartDate(object $app, object $status, string $type): ?string
+    /**
+     * Делим на 24 (берем строго целое от деления), если countHours >= 24, иначе отдаем часы
+     */
+    private function transformHoursToOutput(int $countHours, int $maxHours, int $statusId, bool $isFinance = false): array
     {
-        $statusId = (int) ($status->id ?? 0);
-
-        if ($type === 'app') {
-            // Привязка контрольных дат по ID статусов
-            return match ($statusId) {
-                // Осмотр назначен -> от даты осмотра
-                3 => $app->view_date ?? $app->created_at ?? null,
-                // Направление получено -> от даты направления
-                2 => $app->napr_date ?? $app->created_at ?? null,
-                // Согласование / Ремонт -> от даты ответа СК или начала работ
-                4, 5 => $app->ic_answer_date ?? $app->start_date ?? $app->created_at ?? null,
-                // По умолчанию дата обновления статуса или создания
-                default => $app->status_updated_at ?? $app->updated_at ?? $app->created_at ?? null,
-            };
+        if ($statusId <= ($isFinance ? 1 : 0) || $maxHours <= 0) {
+            return [
+                'max' => 0,
+                'count' => 0,
+                'is_day' => 0,
+                'is_overdue' => false,
+                'display_text' => '—',
+            ];
         }
 
-        // Для финансовых статусов
-        return match ($statusId) {
-            2, 3 => $app->sp_date ?? $app->napr_date ?? $app->created_at ?? null,
-            default => $app->finance_status_updated_at ?? $app->updated_at ?? $app->created_at ?? null,
-        };
+        // Архив (25) и Корзина (27)
+        if (in_array($statusId, [25, 27], true)) {
+            return [
+                'max' => 0,
+                'count' => 0,
+                'is_day' => 0,
+                'is_overdue' => false,
+                'display_text' => $statusId === 25 ? 'Архив' : 'Корзина',
+            ];
+        }
+
+        // Просрочено (отрицательные часы)
+        if ($countHours < 0) {
+            return [
+                'max' => $maxHours >= 24 ? intdiv($maxHours, 24) : $maxHours,
+                'count' => $countHours,
+                'is_day' => 0,
+                'is_overdue' => true,
+                'display_text' => 'просрочено',
+            ];
+        }
+
+        // Если осталось 24 часа и более -> берем ЦЕЛОЕ от деления на 24 (intdiv)
+        if ($countHours >= 24) {
+            $daysLeft = intdiv($countHours, 24);
+            $daysMax = intdiv($maxHours, 24);
+
+            return [
+                'max' => $daysMax,
+                'count' => $daysLeft,
+                'is_day' => 1,
+                'is_overdue' => false,
+                'display_text' => "{$daysLeft} из {$daysMax} дн.",
+            ];
+        }
+
+        // Если осталось менее 24 часов -> отдаем часы как есть (is_day = 0)
+        return [
+            'max' => $maxHours,
+            'count' => $countHours,
+            'is_day' => 0,
+            'is_overdue' => false,
+            'display_text' => "{$countHours} из {$maxHours} ч.",
+        ];
+    }
+
+    private function calcPercent(int $count, int $max): float
+    {
+        if ($count < 0) {
+            return 100.0;
+        }
+
+        if ($max <= 0) {
+            return 0.0;
+        }
+
+        return (float) min(100, max(0, round(($count / $max) * 100, 1)));
     }
 }

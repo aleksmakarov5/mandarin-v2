@@ -1,62 +1,67 @@
 <template>
-    <div class="modal fade" id="calendarModal" tabindex="-1" ref="modalRef" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content border-0 shadow-lg">
-                <div class="modal-header bg-light border-bottom py-3">
-                    <h5 class="modal-title fw-bold text-dark">
-                        <i class="bi me-2 text-primary" :class="isEdit ? 'bi-pencil-square' : 'bi-calendar-plus'"></i>
-                        {{ isEdit ? 'Редактировать день' : 'Добавить исключение в календарь' }}
-                    </h5>
-                    <button type="button" class="btn-close" @click="closeModal" aria-label="Закрыть"></button>
+    <Teleport to="body">
+
+        <div class="modal fade" id="calendarModal" tabindex="-1" ref="modalRef" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow-lg">
+                    <div class="modal-header bg-light border-bottom py-3">
+                        <h5 class="modal-title fw-bold text-dark">
+                            <i class="bi me-2 text-primary"
+                                :class="isEdit ? 'bi-pencil-square' : 'bi-calendar-plus'"></i>
+                            {{ isEdit ? 'Редактировать день' : 'Добавить исключение в календарь' }}
+                        </h5>
+                        <button type="button" class="btn-close" @click="closeModal" aria-label="Закрыть"></button>
+                    </div>
+
+                    <form @submit.prevent="handleSubmit">
+                        <div class="modal-body p-4">
+                            <div v-if="generalError" class="alert alert-danger py-2 small mb-3">
+                                {{ generalError }}
+                            </div>
+
+                            <!-- Дата -->
+                            <div class="mb-3">
+                                <label class="form-label small fw-semibold text-muted">Дата <span
+                                        class="text-danger">*</span></label>
+                                <input v-model="form.date" type="date" class="form-control"
+                                    :class="{ 'is-invalid': errors.date }" required />
+                                <div v-if="errors.date" class="invalid-feedback">{{ errors.date[0] }}</div>
+                            </div>
+
+                            <!-- Тип дня -->
+                            <div class="mb-3">
+                                <label class="form-label small fw-semibold text-muted">Тип дня <span
+                                        class="text-danger">*</span></label>
+                                <select v-model="form.is_workday" class="form-select" required>
+                                    <option :value="false">🔴 Нерабочий / Праздничный день / Перенесенный выходной
+                                    </option>
+                                    <option :value="true">🟢 Рабочая суббота / Перенесенный рабочий день</option>
+                                </select>
+                            </div>
+
+                            <!-- Комментарий / Описание -->
+                            <div class="mb-2">
+                                <label class="form-label small fw-semibold text-muted">Описание / Праздник</label>
+                                <input v-model="form.comment" type="text" class="form-control"
+                                    placeholder="Например: Перенос выходного с 27 апреля, День города" />
+                            </div>
+                        </div>
+
+                        <div class="modal-footer bg-light border-top py-2 px-4 d-flex justify-content-between">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" @click="closeModal"
+                                :disabled="loading">
+                                Отмена
+                            </button>
+                            <button type="submit" class="btn btn-primary btn-sm px-4 fw-semibold" :disabled="loading">
+                                <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>
+                                {{ isEdit ? 'Сохранить' : 'Добавить' }}
+                            </button>
+                        </div>
+                    </form>
                 </div>
-
-                <form @submit.prevent="handleSubmit">
-                    <div class="modal-body p-4">
-                        <div v-if="generalError" class="alert alert-danger py-2 small mb-3">
-                            {{ generalError }}
-                        </div>
-
-                        <!-- Дата -->
-                        <div class="mb-3">
-                            <label class="form-label small fw-semibold text-muted">Дата <span
-                                    class="text-danger">*</span></label>
-                            <input v-model="form.date" type="date" class="form-control"
-                                :class="{ 'is-invalid': errors.date }" required />
-                            <div v-if="errors.date" class="invalid-feedback">{{ errors.date[0] }}</div>
-                        </div>
-
-                        <!-- Тип дня -->
-                        <div class="mb-3">
-                            <label class="form-label small fw-semibold text-muted">Тип дня <span
-                                    class="text-danger">*</span></label>
-                            <select v-model="form.is_workday" class="form-select" required>
-                                <option :value="false">🔴 Нерабочий / Праздничный день / Перенесенный выходной</option>
-                                <option :value="true">🟢 Рабочая суббота / Перенесенный рабочий день</option>
-                            </select>
-                        </div>
-
-                        <!-- Комментарий / Описание -->
-                        <div class="mb-2">
-                            <label class="form-label small fw-semibold text-muted">Описание / Праздник</label>
-                            <input v-model="form.comment" type="text" class="form-control"
-                                placeholder="Например: Перенос выходного с 27 апреля, День города" />
-                        </div>
-                    </div>
-
-                    <div class="modal-footer bg-light border-top py-2 px-4 d-flex justify-content-between">
-                        <button type="button" class="btn btn-outline-secondary btn-sm" @click="closeModal"
-                            :disabled="loading">
-                            Отмена
-                        </button>
-                        <button type="submit" class="btn btn-primary btn-sm px-4 fw-semibold" :disabled="loading">
-                            <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>
-                            {{ isEdit ? 'Сохранить' : 'Добавить' }}
-                        </button>
-                    </div>
-                </form>
             </div>
         </div>
-    </div>
+    </Teleport>
 </template>
 
 <script setup>

@@ -229,22 +229,28 @@ function normalizeForm(source) {
         const value = normalized[field];
         normalized[field] = value ? String(value).substring(0, 10) : null;
     });
-    // 2. СПЕЦИАЛЬНАЯ ОБРАБОТКА view_date (datetime-local)
+
+    // 2. view_date (datetime-local)
     const rawViewDate = normalized.view_date;
     if (rawViewDate) {
-        // Превращаем "2026-11-17 14:30:00" -> "2026-11-17T14:30"
         normalized.view_date = String(rawViewDate).replace(' ', 'T').substring(0, 16);
     } else {
         normalized.view_date = '';
     }
 
+    // 3. Числовые поля (гарантируем Number, исключаем NaN)
     NUMERIC_FIELDS.forEach((field) => {
         const value = normalized[field];
-
-        normalized[field] = value === null || value === undefined || value === ''
+        normalized[field] = (value === null || value === undefined || value === '' || isNaN(Number(value)))
             ? null
             : Number(value);
     });
+
+    // 4. Филиал (our_company / our_company_id)
+    const rawBranch = normalized.our_company ?? source.our_company_id ?? source.id_our_company;
+    normalized.our_company = (rawBranch !== null && rawBranch !== undefined && rawBranch !== '' && !isNaN(Number(rawBranch)))
+        ? Number(rawBranch)
+        : null;
 
     return normalized;
 }
@@ -297,6 +303,7 @@ async function load() {
     saveError.value = '';
 
     try {
+        // 1. Загружаем всё параллельно
         const [applicationResponse, optionsResponse, lawyersResponse] =
             await Promise.all([
                 axios.get(`/api/applications/${props.applicationId}/general`),
@@ -304,8 +311,7 @@ async function load() {
                 axios.get('/api/general-lawyers'),
             ]);
 
-        form.value = normalizeForm(applicationResponse.data.data || {});
-
+        // 2. СНАЧАЛА наполняем списки опций (филиалы, города, СК), чтобы селекты успели их отрендерить
         Object.assign(options, {
             statuses: optionsResponse.data.statuses || [],
             cities: optionsResponse.data.cities || [],
@@ -316,8 +322,15 @@ async function load() {
 
         lawyers.value = lawyersResponse.data || [];
 
-        await loadStaff();
+        // 3. ЗАТЕМ нормализуем и выставляем данные формы
+        form.value = normalizeForm(applicationResponse.data.data || {});
 
+        // 4. Подгружаем сотрудников под уже выбранный филиал
+        if (form.value.our_company) {
+            await loadStaff();
+        }
+
+        // 5. Фиксируем снимок сохранённого состояния
         lastSavedPayload.value = {
             ...buildPayload(),
         };
@@ -333,12 +346,14 @@ async function load() {
 }
 
 async function loadStaff() {
+    const branchId = form.value?.our_company ? Number(form.value.our_company) : null;
+
     try {
         const response = await axios.get(
             '/api/applications/general-branch-employees',
             {
                 params: {
-                    branch_id: form.value.our_company || undefined,
+                    branch_id: branchId || undefined,
                 },
             }
         );
@@ -348,7 +363,6 @@ async function loadStaff() {
         staff.spm = response.data.spm || [];
     } catch (error) {
         console.error('Не удалось загрузить сотрудников филиала', error);
-
         staff.mrk = [];
         staff.mentors = [];
         staff.spm = [];
@@ -571,16 +585,38 @@ async function createLawyer() {
 watch(
     () => form.value?.our_company,
     async (newBranch, oldBranch) => {
-        console.log('Филиал изменился:', oldBranch, '->', newBranch);
-
-        if (!loading.value && form.value?.id && newBranch) {
-            await loadStaff(); // Вызывай загрузку сотрудников
-        } else if (!newBranch) {
-            console.log('Филиал сброшен, очищаем список');
-            staff.mrk = [];
-            staff.mentors = [];
-            staff.spm = [];
+        // Игнорируем вызовы во время первичной загрузки страницы
+        if (loading.value || !form.value?.id) {
+            return;
         }
+
+        const parsedNew = (newBranch !== null && newBranch !== undefined && newBranch !== '' && !isNaN(Number(newBranch)))
+            ? Number(newBranch)
+            : null;
+        const parsedOld = (oldBranch !== null && oldBranch !== undefined && oldBranch !== '' && !isNaN(Number(oldBranch)))
+            ? Number(oldBranch)
+            : null;
+
+        if (parsedNew === parsedOld) {
+            return;
+        }
+
+        // Обновляем список сотрудников под новый филиал
+        await loadStaff();
+
+        // Сбрасываем выбранных сотрудников, если они не принадлежат новому филиалу
+        if (form.value.id_MRK && !staff.mrk.some(u => Number(u.id) === Number(form.value.id_MRK))) {
+            form.value.id_MRK = null;
+        }
+        if (form.value.id_mentor && !staff.mentors.some(u => Number(u.id) === Number(form.value.id_mentor))) {
+            form.value.id_mentor = null;
+        }
+        if (form.value.id_spm && !staff.spm.some(u => Number(u.id) === Number(form.value.id_spm))) {
+            form.value.id_spm = null;
+        }
+
+        // Запускаем сохранение
+        queueSave();
     }
 );
 
