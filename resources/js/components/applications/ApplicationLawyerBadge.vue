@@ -1,13 +1,13 @@
 <template>
     <div class="lawyer-cell-wrapper d-inline-block text-truncate" style="max-width: 100%;">
-        <!-- Если юрист назначен: цветной бейдж с фамилией/именем -->
+        <!-- Назначенный юрист с цветовым оформлением -->
         <span v-if="hasLawyer" class="badge-lawyer cell-truncate d-inline-block"
             :class="isCooperating ? 'badge-lawyer-coop' : 'badge-lawyer-no-coop'"
             @mouseenter="$emit('hover', $event, tooltipText)" @mouseleave="$emit('leave')">
             {{ displayName }}
         </span>
 
-        <!-- Если юрист не назначен: прочерк -->
+        <!-- Если юрист не назначен -->
         <span v-else class="text-muted" style="font-size: 0.70rem;">—</span>
     </div>
 </template>
@@ -33,15 +33,28 @@ const hasLawyer = computed(() => {
     return lid > 0 || Boolean(lawyerObj.value?.name);
 });
 
+// Проверка статуса сотрудничества (поддержка boolean, 1/0, string)
 const isCooperating = computed(() => {
-    if (!lawyerObj.value) return true;
-    return lawyerObj.value.is_cooperating !== false && lawyerObj.value.is_cooperating !== 0;
+    if (lawyerObj.value && typeof lawyerObj.value.is_cooperating !== 'undefined') {
+        return (
+            lawyerObj.value.is_cooperating === true ||
+            lawyerObj.value.is_cooperating === 1 ||
+            lawyerObj.value.is_cooperating === '1'
+        );
+    }
+    if (typeof props.item.is_cooperating !== 'undefined') {
+        return (
+            props.item.is_cooperating === true ||
+            props.item.is_cooperating === 1 ||
+            props.item.is_cooperating === '1'
+        );
+    }
+    return false;
 });
 
 const displayName = computed(() => {
     if (!lawyerObj.value?.name) return `Юрист #${props.item.id_lawyer || ''}`;
     const parts = lawyerObj.value.name.trim().split(/\s+/);
-    // Выводим Фамилию или первое слово ФИО
     return parts[0] || lawyerObj.value.name;
 });
 
@@ -58,12 +71,14 @@ const tooltipText = computed(() => {
 .badge-lawyer {
     font-size: 0.65rem !important;
     font-weight: 600;
-    padding: 1px 4px;
+    padding: 1px 5px;
     border-radius: 3px;
     line-height: 1.2;
     letter-spacing: -0.01em;
     max-width: 100%;
     cursor: default;
+    display: inline-block;
+    white-space: nowrap;
 }
 
 .badge-lawyer-coop {
