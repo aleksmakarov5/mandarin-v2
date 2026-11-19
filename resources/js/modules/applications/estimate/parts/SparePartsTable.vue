@@ -58,7 +58,7 @@
                     <div class="summary-pill pill-casco-half d-flex align-items-center gap-2">
                         <span class="pill-label">Цена со скидкой:</span>
                         <span class="pill-value font-monospace fw-bold text-success">{{ formatMoney(totalSumDiscounted)
-                        }} ₽</span>
+                            }} ₽</span>
                     </div>
                 </template>
 
@@ -994,32 +994,41 @@ const addNewRow = async () => {
 
 const normalizeText = (val) => {
     if (val === null || val === undefined) return '';
-    return String(val).replace(/\u00a0/g, ' ').trim();
+    return String(val)
+        .replace(/\u00a0/g, ' ')  // Заменяем &nbsp; на обычный пробел
+        .replace(/\r?\n|\r/g, ' ') // Убираем случайные переносы строк из contenteditable
+        .trim();
 };
 
 // Сохранение текста
 const saveTextField = async (part, field, rawValue) => {
     let cleanVal = normalizeText(rawValue);
 
+    // Обрезка до 10 символов — СТРОГО ТОЛЬКО ДЛЯ ДАТ!
     if (field === 'delivery_date' || field === 'order_date') {
-        cleanVal = cleanVal || null;
+        cleanVal = cleanVal ? cleanVal.substring(0, 10) : null;
+        const currentVal = part[field] ? String(part[field]).substring(0, 10) : null;
+        if (cleanVal === currentVal) return;
+    } else {
+        // Для текстовых полей (name, part_number и т.д.) сравниваем ВСЮ строку целиком!
+        const currentVal = normalizeText(part[field]);
+        if (cleanVal === currentVal) return;
     }
 
-    const currentVal = part[field] ? String(part[field]).substring(0, 10) : null;
-    const nextVal = cleanVal ? String(cleanVal).substring(0, 10) : null;
-
-    if (nextVal === currentVal) return;
-
     const previousValue = part[field];
-    part[field] = nextVal;
+    part[field] = cleanVal;
 
     try {
         const res = await axios.put(`/api/applications/${props.applicationId}/spare-parts/${part.id}/field`, {
             field,
-            value: nextVal,
+            value: cleanVal,
         });
         if (res.data?.data) {
             Object.assign(part, res.data.data);
+            part.author_type = Number(res.data.data.author_type);
+            part.updated_by_user_id = res.data.data.updated_by_user_id;
+            if (res.data.data.status) part.status = res.data.data.status;
+            if (res.data.data.order_date !== undefined) part.order_date = res.data.data.order_date;
         }
         emit('updated');
     } catch (err) {
@@ -1108,8 +1117,12 @@ const toggleMrkSelection = async (part, type) => {
         const res = await axios.put(`/api/applications/${props.applicationId}/spare-parts/${part.id}/toggle-mrk`, {
             type,
         });
-        part.selected_mrk = res.data.data.selected_mrk;
-        part.selected_price = res.data.data.selected_price;
+        if (res.data?.data) {
+            // Применяем все свежие данные с бэкенда, включая author_type!
+            Object.assign(part, res.data.data);
+            part.author_type = Number(res.data.data.author_type);
+            part.updated_by_user_id = res.data.data.updated_by_user_id;
+        }
         emit('updated');
     } catch (err) {
         console.error('Ошибка выбора варианта МРК:', err);
@@ -1633,7 +1646,8 @@ onMounted(fetchParts);
 .table-mandarin {
     table-layout: fixed !important;
     width: 100% !important;
-    max-width: 100% !important;
+    min-width: 1050px !important;
+    /* Гарантирует горизонтальный скролл на смартфонах и планшетах */
     font-size: 0.70rem !important;
     border-collapse: collapse;
     line-height: 1.15;
@@ -1667,7 +1681,7 @@ onMounted(fetchParts);
 
 .col-name {
     width: auto;
-    min-width: 120px;
+    min-width: 150px;
 }
 
 .col-part-num {
@@ -2209,16 +2223,23 @@ td.cell-pzn-diff-yellow {
 /* ДЕСКТОП: ТАБЛИЦА СТРОГО В ШИРИНУ ЭКРАНА (БЕЗ СКРОЛЛА)     */
 /* ======================================================== */
 .table-desktop-fit-wrapper {
-    width: 100%;
-    max-width: 100%;
-    overflow-x: hidden;
+    width: 100% !important;
+    max-width: 100% !important;
     background: #ffffff;
+    /* Разрешаем скролл ВСЕГДА, когда контент шире контейнера */
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
 }
 
-@media (max-width: 1199.98px) {
+
+
+@media (min-width: 1280px) {
+    .col-name {
+        width: 500px;
+    }
+
     .table-desktop-fit-wrapper {
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch;
+        overflow-x: auto;
     }
 }
 
@@ -2357,5 +2378,138 @@ td.cell-pzn-diff-yellow {
 .spare-part-row td.selected-mrk-active {
     background: linear-gradient(135deg, #16a34a, #22c55e) !important;
     color: #ffffff !important;
+}
+
+/* ========================================================= */
+/* ИНТЕРАКТИВНЫЙ HOVER ДЛЯ СТРОК СМЕТЫ                       */
+/* ========================================================= */
+
+.spare-part-row {
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* 0. Автоматически из калькуляции (Белый -> Мягкий нейтральный) */
+.spare-part-row.row-auto-calc:hover,
+.spare-part-row.row-auto-calc:hover>td {
+    --bs-table-bg: #f8fafc !important;
+    --bs-table-accent-bg: #f8fafc !important;
+    background-color: #f7fbfe89 !important;
+}
+
+/* 1. МРК (Голубой -> Насыщенный небесный) */
+.spare-part-row.row-mrk:hover,
+.spare-part-row.row-mrk:hover>td {
+    --bs-table-bg: #bae6fd !important;
+    --bs-table-accent-bg: #bae6fd !important;
+    background-color: #bae6fd !important;
+}
+
+/* 2. Наставник (Лавандовый -> Насыщенный сиреневый) */
+.spare-part-row.row-mentor:hover,
+.spare-part-row.row-mentor:hover>td {
+    --bs-table-bg: #e9d5ff !important;
+    --bs-table-accent-bg: #e9d5ff !important;
+    background-color: #e9d5ff !important;
+}
+
+/* 3. Запчастист / СПМ (Светло-зеленый -> Мятно-зеленый) */
+.spare-part-row.row-spm:hover,
+.spare-part-row.row-spm:hover>td {
+    --bs-table-bg: #bbf7d0 !important;
+    --bs-table-accent-bg: #bbf7d0 !important;
+    background-color: #bbf7d0 !important;
+}
+
+/* 4. Сервис / СТО (Пастельно-желтый -> Теплый золотистый) */
+.spare-part-row.row-sto:hover,
+.spare-part-row.row-sto:hover>td {
+    --bs-table-bg: #fef08a !important;
+    --bs-table-accent-bg: #fef08a !important;
+    background-color: #fef08a !important;
+}
+
+/* 5. Другой пользователь (Песочный -> Насыщенный абрикосовый) */
+.spare-part-row.row-other:hover,
+.spare-part-row.row-other:hover>td {
+    --bs-table-bg: #fdba74 !important;
+    --bs-table-accent-bg: #fdba74 !important;
+    background-color: #fdba74 !important;
+}
+
+/* 6. ИИ анализ (Розовый -> Насыщенный пудровый) */
+.spare-part-row.row-ai:hover,
+.spare-part-row.row-ai:hover>td {
+    --bs-table-bg: #fbcfe8 !important;
+    --bs-table-accent-bg: #fbcfe8 !important;
+    background-color: #fbcfe8 !important;
+}
+
+/* Сохраняем темные ячейки цен СК и ПЗН даже при наведении на строку */
+.spare-part-row:hover td.cell-dark-bg,
+.spare-part-row:hover td.cell-dark {
+    --bs-table-bg: #0f172a !important;
+    --bs-table-accent-bg: #0f172a !important;
+    background-color: #0f172a !important;
+    color: #ffffff !important;
+}
+
+/* Ячейка и заголовок наименования */
+.col-name,
+th.col-name,
+td.col-name {
+    /* Задаем комфортную минимальную ширину */
+    width: 240px !important;
+    min-width: 200px !important;
+    text-align: left !important;
+
+    /* Разрешаем перенос строк и отключаем обрезание троеточием */
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    line-height: 1.25 !important;
+}
+
+/* Если внутри td есть contenteditable div или span */
+td.col-name .cell-editable-text,
+td.col-name [contenteditable] {
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    display: block !important;
+    min-width: 190px !important;
+    line-height: 1.25 !important;
+}
+
+/* Контейнер-обёртка таблицы */
+.table-responsive,
+.table-desktop-fit-wrapper,
+.spare-parts-table-wrapper {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    display: block !important;
+}
+
+/* Сама таблица */
+.mandarin-table,
+.spare-parts-table {
+    /* На мобильных экран не должен насильно ужимать таблицу */
+    min-width: 1100px !important;
+    width: max-content !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+}
+
+/* Но на десктопе (экраны шире 1280px) таблица растягивается на 100% экрана */
+@media (min-width: 1280px) {
+
+    .mandarin-table,
+    .spare-parts-table {
+        width: 100% !important;
+        min-width: 100% !important;
+    }
 }
 </style>

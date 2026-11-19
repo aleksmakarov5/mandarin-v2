@@ -33,6 +33,7 @@ class SparePart extends Model
         'is_manual',
         'is_small_parts',
         'created_by_user_id',
+        'author_type',
     ];
 
     protected $casts = [

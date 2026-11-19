@@ -14,34 +14,65 @@ use Illuminate\Support\Facades\Schema;
 
 class SparePartController extends Controller
 {
-    public function index(Request $request, ...$params): JsonResponse
+    public function index(Request $request, int $applicationId): JsonResponse
     {
-        $user = $request->user();
-        $applicationId = $this->resolveApplicationId($request, $params);
         $columns = \Illuminate\Support\Facades\Schema::getColumnListing('spare_parts');
         $appKey = in_array('application_id', $columns) ? 'application_id' : 'id_application';
-        $hasSmallCol = in_array('is_small_parts', $columns);
+
+        $hasCommentsTable = \Illuminate\Support\Facades\Schema::hasTable('spare_part_comments');
+
+        $query = \App\Models\SparePart::with('creator:id,name')
+            ->where($appKey, $applicationId)
+            ->orderBy('is_small_parts', 'asc')
+            ->orderBy('id', 'asc');
+
+        // Если в модели User есть last_name, подгружаем его
+        $hasLastName = \Illuminate\Support\Facades\Schema::hasColumn('users', 'last_name');
+        $userFields = $hasLastName ? 'id,name,last_name' : 'id,name';
+
+        if ($hasCommentsTable) {
+            $query->with([
+                'comments' => function ($q) use ($userFields) {
+                    $q->orderBy('created_at', 'asc')->with("user:{$userFields}");
+                }
+            ]);
+        }
+
+        $parts = $query->get();
+
+        // Подстраховка: если у строки есть текстовое поле comment, но массив comments пуст,
+        // формируем виртуальный комментарий для корректного отображения в чате и в таблице
+        foreach ($parts as $part) {
+            if ($hasCommentsTable && $part->relationLoaded('comments') && $part->comments->isEmpty() && !empty($part->comment)) {
+                $part->setRelation('comments', collect([
+                    [
+                        'id' => 0,
+                        'spare_part_id' => $part->id,
+                        'user_id' => $part->updated_by_user_id ?? $part->created_by_user_id,
+                        'comment' => (string) $part->comment,
+                        'created_at' => $part->updated_at ?? $part->created_at,
+                        'user' => $part->creator ?? null,
+                    ]
+                ]));
+            }
+        }
 
         $app = \App\Models\Application::find($applicationId);
-        $ubType = mb_strtolower((string) ($app->ub_type ?? ''));
-        $isCasco = str_contains($ubType, 'каско') || str_contains($ubType, 'casco') || $ubType === '1';
+        $statusId = (int) ($app->id_status ?? $app->status_id ?? 0);
+        $isCasco = (int) ($app->ub_type ?? 0) === 1;
 
-        $parts = \App\Models\SparePart::with('creator:id,name,last_name')
-            ->where($appKey, $applicationId)
-            ->orderBy($hasSmallCol ? 'is_small_parts' : 'id', 'asc')
-            ->orderBy('id', 'asc')
-            ->get();
-
-        // Скидку берём из столбца iznos первой запчасти (или из заявки)
-        $firstWithIznos = $parts->first(fn($p) => (float) ($p->iznos ?? 0) > 0);
-        $discount = (float) ($firstWithIznos->iznos ?? $app->discount_percent ?? 0);
+        $user = \Illuminate\Support\Facades\Auth::user();
+        $isSto = false;
+        if ($user) {
+            $groupId = (int) ($user->user_group_id ?? $user->GroupId ?? $user->group_id ?? 0);
+            $isSto = ($groupId === 8);
+        }
 
         return response()->json([
             'data' => $parts,
             'is_casco' => $isCasco,
-            'discount_percent' => $discount, // передаем точный процент в плашку
-            'is_sto' => $user->isSto(),
-            'status_id' => $app->id_status ?? $app->status_id ?? null,
+            'is_sto' => $isSto,
+            'status_id' => $statusId,
         ]);
     }
 
@@ -184,8 +215,14 @@ class SparePartController extends Controller
                 $part->author_type = $this->resolveAuthorType($user, $app);
             }
 
-            if (in_array('updated_by_user_id', $columns)) {
-                $part->updated_by_user_id = $user?->id;
+            $isManual = ((int) ($part->author_type ?? 0) !== 0);
+
+            if ($isManual && in_array('author_type', $columns)) {
+                $newAuthorType = $this->resolveAuthorType($user, $app);
+                // Если редактор опознан (1..5), обновляем author_type
+                if ($newAuthorType > 0) {
+                    $part->author_type = $newAuthorType;
+                }
             }
 
             $part->save();
@@ -219,18 +256,55 @@ class SparePartController extends Controller
      */
     public function toggleSelectedMrk(Request $request, int $applicationId, int $partId): JsonResponse
     {
-        $part = SparePart::where('application_id', $applicationId)->findOrFail($partId);
+        $columns = \Illuminate\Support\Facades\Schema::getColumnListing('spare_parts');
+        $appKey = in_array('application_id', $columns) ? 'application_id' : 'id_application';
+
+        $part = SparePart::where($appKey, $applicationId)->findOrFail($partId);
         $type = $request->input('type'); // 'original', 'analogue', 'used', 'sto'
 
         $old = $part->selected_mrk;
         $new = ($part->selected_mrk === $type) ? null : $type;
 
         $part->selected_mrk = $new;
+
+        // Если в таблице используется selected_price (1 - оригинал, 2 - аналог, 3 - бу, 4 - сто)
+        if (in_array('selected_price', $columns)) {
+            $typeToNum = [
+                'original' => 1,
+                'analogue' => 2,
+                'used' => 3,
+                'sto' => 4,
+            ];
+            $part->selected_price = $new ? ($typeToNum[$new] ?? null) : null;
+        }
+
+        $user = \Illuminate\Support\Facades\Auth::user();
+        $app = \App\Models\Application::find($applicationId);
+
+        // НАДЁЖНАЯ ПРОВЕРКА: является ли строка добавленной вручную
+        $isManual = ((int) ($part->author_type ?? 0) !== 0);
+
+        if ($isManual && !($part->is_small_parts ?? false) && in_array('author_type', $columns)) {
+            $newAuthorType = $this->resolveAuthorType($user, $app);
+            if ($newAuthorType > 0) {
+                $part->author_type = $newAuthorType;
+            }
+        }
+
+        if (in_array('updated_by_user_id', $columns)) {
+            $part->updated_by_user_id = $user?->id;
+        }
+
         $part->save();
 
-        $this->logHistory($part, 'supplier_selected', 'selected_mrk', (string) $old, (string) $new);
+        try {
+            $this->logHistory($part, 'supplier_selected', 'selected_mrk', (string) $old, (string) $new);
+        } catch (\Throwable $th) {
+        }
 
-        return response()->json(['data' => $part]);
+        return response()->json([
+            'data' => $part->fresh()
+        ]);
     }
 
     /**
@@ -984,41 +1058,43 @@ class SparePartController extends Controller
             return response()->json(['message' => 'Ошибка: ' . $e->getMessage()], 500);
         }
     }
-    protected function resolveAuthorType(?\App\Models\User $user, \App\Models\Application $application): int
+    protected function resolveAuthorType(?\App\Models\User $user, ?\App\Models\Application $application): int
     {
-        if (!$user) {
-            return 0; // Автоматически
+        if (!$user || !$application) {
+            return 5; // Если пользователь авторизован, но связи не найдены — это другой сотрудник
         }
 
         $userId = (int) $user->id;
 
-        // 1. МРК дела
-        if ($application->id_MRK && (int) $application->id_MRK === $userId) {
+        // 1. МРК дела (проверяем все варианты названий колонок)
+        $mrkId = (int) ($application->id_MRK ?? $application->id_mrk ?? $application->mrk_id ?? 0);
+        if ($mrkId > 0 && $mrkId === $userId) {
             return 1;
         }
 
-        // 2. Наставник дела (проверяем id_mentor или mentor_id)
+        // 2. Наставник дела
         $mentorId = (int) ($application->id_mentor ?? $application->mentor_id ?? 0);
         if ($mentorId > 0 && $mentorId === $userId) {
             return 2;
         }
 
-        // 3. Запчастист (СПМ) дела
-        if ($application->id_spm && (int) $application->id_spm === $userId) {
+        // 3. Запчастист дела (СПМ)
+        $spmId = (int) ($application->id_spm ?? $application->spm_id ?? 0);
+        if ($spmId > 0 && $spmId === $userId) {
             return 3;
         }
 
-        // 4. Сервис (СТО) дела
-        // Проверяем: либо сервис дела привязан к пользователю, либо у пользователя роль СТО в филиале дела
-        $branchId = (int) ($application->our_company ?? $application->our_company_id ?? 0);
-        if (method_exists($user, 'isStoForBranch') && $user->isStoForBranch($branchId)) {
+        // 4. Сервис / СТО дела
+        $serviceId = (int) ($application->id_service ?? $application->service_id ?? 0);
+        if ($serviceId > 0 && method_exists($user, 'getServiceId') && (int) $user->getServiceId() === $serviceId) {
             return 4;
         }
-        if (method_exists($user, 'getServiceId') && $application->id_service && (int) $application->id_service === (int) $user->getServiceId()) {
+        $userGroupId = (int) ($user->user_group_id ?? $user->GroupId ?? $user->group_id ?? 0);
+        if ($userGroupId === 8) {
             return 4;
         }
 
-        // 5. Любой другой пользователь (сисадмин, руководитель, чужой МРК)
+        // 5. Другой пользователь (сисадмин, другой МРК и т.д.)
         return 5;
     }
 
