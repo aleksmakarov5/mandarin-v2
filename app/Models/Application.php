@@ -148,6 +148,11 @@ class Application extends Model
         ]);
     }
 
+    public function spareParts(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(SparePart::class, 'application_id');
+    }
+
 
 
 

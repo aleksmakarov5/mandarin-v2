@@ -142,6 +142,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/works/{workId}', [EstimateController::class, 'updateWork']);
         Route::delete('/works/{workId}', [EstimateController::class, 'destroyWork']);
     });
+    Route::prefix('applications/{id}/spare-parts')->group(function () {
+        Route::get('/', [SparePartController::class, 'index']);
+        Route::post('/', [SparePartController::class, 'store']);
+        Route::post('/small-parts', [SparePartController::class, 'handleSmallParts']);
+        Route::get('/history', [SparePartController::class, 'history']);
+        Route::put('/{partId}/field', [SparePartController::class, 'updateField']);
+        Route::put('/{partId}/toggle-mrk', [SparePartController::class, 'toggleSelectedMrk']);
+        Route::delete('/{partId}', [SparePartController::class, 'destroy']);
+    });
 
 });
 

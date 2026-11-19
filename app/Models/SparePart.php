@@ -5,59 +5,61 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SparePart extends Model
 {
     use HasFactory;
 
+    protected $table = 'spare_parts';
+
     protected $fillable = [
         'application_id',
-        'sparepart_status_id',
         'name',
         'part_number',
-        'order_number',
-        'price_ic_full',
-        'price_ic_half',
+        'count',
+        'price_ic',
+        'price_pzn',
         'price_original',
         'price_analogue',
         'price_used',
-        'selected_price',
+        'price_sto',
         'selected_mrk',
         'status',
-        'date_price',
-        'date_wait',
+        'order_date',
+        'delivery_date',
         'comment',
+        'is_manual',
+        'is_small_parts',
+        'created_by_user_id',
     ];
 
     protected $casts = [
-        'price_ic_full' => 'decimal:2',
-        'price_ic_half' => 'decimal:2',
-        'price_original' => 'decimal:2',
-        'price_analogue' => 'decimal:2',
-        'price_used' => 'decimal:2',
-        'date_price' => 'date',
-        'date_wait' => 'date',
-        'selected_price' => 'integer',
+        'count' => 'integer',
+        'price_ic' => 'float',
+        'price_pzn' => 'float',
+        'price_original' => 'float',
+        'price_analogue' => 'float',
+        'price_used' => 'float',
+        'price_sto' => 'float',
+        'is_manual' => 'boolean',
+        'is_small_parts' => 'boolean',
+        'order_date' => 'date:Y-m-d',
+        'delivery_date' => 'date:Y-m-d',
     ];
 
     public function application(): BelongsTo
     {
-        return $this->belongsTo(Application::class);
+        return $this->belongsTo(Application::class, 'application_id');
     }
 
-    public function sparepartStatus(): BelongsTo
+    public function creator(): BelongsTo
     {
-        return $this->belongsTo(SparepartStatus::class);
+        return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
-    // Хелпер получения итоговой выбранной цены
-    public function getEffectivePriceAttribute(): float
+    public function histories(): HasMany
     {
-        return match ($this->selected_price) {
-            1 => (float) $this->price_original,
-            2 => (float) $this->price_analogue,
-            3 => (float) $this->price_used,
-            default => 0.0,
-        };
+        return $this->hasMany(SparePartHistory::class, 'spare_part_id')->orderBy('id', 'desc');
     }
 }

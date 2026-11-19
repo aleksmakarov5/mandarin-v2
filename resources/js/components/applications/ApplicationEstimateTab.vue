@@ -48,149 +48,7 @@
             </div>
 
             <!-- 2. СЕКЦИЯ: ЗАПЧАСТИ -->
-            <div class="card border-0 shadow-sm mb-4">
-                <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
-                    <span class="fw-bold">
-                        <i class="bi bi-gear-wide-connected me-2 text-warning"></i>
-                        Запчасти и материалы ({{ spareParts.length }})
-                    </span>
-                    <button class="btn btn-warning btn-sm fw-semibold" @click="showAddPartModal = true">
-                        <i class="bi bi-plus-lg me-1"></i> Добавить деталь
-                    </button>
-                </div>
-
-                <div class="table-responsive">
-                    <table class="table table-bordered table-hover align-middle mb-0 font-sans"
-                        style="font-size: 0.82rem;">
-                        <thead class="table-light text-center align-middle" style="font-size: 0.75rem;">
-                            <tr>
-                                <th style="width: 40px;">#</th>
-                                <th style="min-width: 200px;">Наименование детали</th>
-                                <th style="width: 120px;">Каталожный №</th>
-                                <th style="width: 60px;">Кол-во</th>
-                                <th style="width: 100px;">Цена СК</th>
-                                <th style="width: 110px;">Сумма СК</th>
-                                <th style="min-width: 220px;" class="bg-light">Варианты закупки (СТО / Ориг / Аналог /
-                                    Б/У)</th>
-                                <th style="width: 110px;" class="table-primary">Цена закупки</th>
-                                <th style="width: 90px;">Выгода/Убыток</th>
-                                <th style="width: 120px;">Статус</th>
-                                <th style="width: 110px;">Срок</th>
-                                <th style="width: 50px;"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="(part, idx) in spareParts" :key="part.id">
-                                <td class="text-center text-muted font-monospace">{{ idx + 1 }}</td>
-                                <td>
-                                    <input v-model="part.name" @change="savePart(part)"
-                                        class="form-control form-control-sm border-0 bg-transparent fw-semibold" />
-                                </td>
-                                <td>
-                                    <input v-model="part.part_number" @change="savePart(part)"
-                                        class="form-control form-control-sm border-0 bg-transparent font-monospace text-uppercase"
-                                        placeholder="Номер..." />
-                                </td>
-                                <td>
-                                    <input v-model.number="part.count" @change="savePart(part)" type="number" min="1"
-                                        class="form-control form-control-sm text-center font-monospace" />
-                                </td>
-                                <td>
-                                    <input v-model.number="part.price_sk" @change="savePart(part)" type="number"
-                                        step="0.01" class="form-control form-control-sm text-end font-monospace" />
-                                </td>
-                                <td class="text-end fw-bold font-monospace text-dark">
-                                    {{ formatMoney((part.price_sk || 0) * (part.count || 1)) }} ₽
-                                </td>
-
-                                <!-- Кнопки выбора закупки в 1 клик -->
-                                <td class="p-1">
-                                    <div class="d-flex flex-wrap gap-1 align-items-center">
-                                        <button v-if="part.sto_price" @click="selectBuyPrice(part, part.sto_price)"
-                                            class="btn btn-xs btn-outline-secondary py-0 px-1 font-monospace"
-                                            title="Выбрать цену СТО">
-                                            СТО: {{ formatMoney(part.sto_price) }} →
-                                        </button>
-                                        <button v-if="part.orig_price" @click="selectBuyPrice(part, part.orig_price)"
-                                            class="btn btn-xs btn-outline-primary py-0 px-1 font-monospace"
-                                            title="Выбрать оригинал">
-                                            Ориг: {{ formatMoney(part.orig_price) }} →
-                                        </button>
-                                        <button v-if="part.anal_price" @click="selectBuyPrice(part, part.anal_price)"
-                                            class="btn btn-xs btn-outline-info py-0 px-1 font-monospace"
-                                            title="Выбрать аналог">
-                                            Аналог: {{ formatMoney(part.anal_price) }} →
-                                        </button>
-                                        <button v-if="part.bu_price" @click="selectBuyPrice(part, part.bu_price)"
-                                            class="btn btn-xs btn-outline-dark py-0 px-1 font-monospace"
-                                            title="Выбрать Б/У">
-                                            Б/У: {{ formatMoney(part.bu_price) }} →
-                                        </button>
-                                        <span
-                                            v-if="!part.sto_price && !part.orig_price && !part.anal_price && !part.bu_price"
-                                            class="text-muted small fst-italic">
-                                            нет цен
-                                        </span>
-                                    </div>
-                                </td>
-
-                                <!-- Фактическая закупка -->
-                                <td class="table-primary p-1">
-                                    <input v-model.number="part.buy_price" @change="savePart(part)" type="number"
-                                        step="0.01" class="form-control form-control-sm text-end font-monospace fw-bold"
-                                        placeholder="0.00" />
-                                </td>
-
-                                <!-- Маржа по детали -->
-                                <td class="text-end font-monospace fw-bold" :class="getPartDiffClass(part)">
-                                    {{ formatMoney(getPartDiff(part)) }} ₽
-                                </td>
-
-                                <td>
-                                    <select v-model="part.status" @change="savePart(part)"
-                                        class="form-select form-select-sm py-0">
-                                        <option value="Поиск">Поиск</option>
-                                        <option value="Заказана">Заказана</option>
-                                        <option value="В пути">В пути</option>
-                                        <option value="На складе">На складе</option>
-                                        <option value="Выдана">Выдана</option>
-                                        <option value="Отказ">Отказ</option>
-                                    </select>
-                                </td>
-                                <td>
-                                    <input v-model="part.term" @change="savePart(part)"
-                                        class="form-control form-control-sm py-0" placeholder="Срок..." />
-                                </td>
-                                <td class="text-center p-1">
-                                    <button @click="deletePart(part.id)" class="btn btn-xs btn-outline-danger border-0"
-                                        title="Удалить деталь">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                            <tr v-if="spareParts.length === 0">
-                                <td colspan="12" class="text-center py-4 text-muted">
-                                    В смету еще не добавлены запчасти. Нажмите «Добавить деталь».
-                                </td>
-                            </tr>
-                        </tbody>
-                        <tfoot class="table-light fw-bold">
-                            <tr>
-                                <td colspan="4" class="text-end">Итого по запчастям:</td>
-                                <td class="text-end font-monospace">—</td>
-                                <td class="text-end font-monospace text-primary">{{ formatMoney(totalPartsSk) }} ₽</td>
-                                <td></td>
-                                <td class="text-end font-monospace text-dark">{{ formatMoney(totalPartsCost) }} ₽</td>
-                                <td class="text-end font-monospace"
-                                    :class="totalPartsSk - totalPartsCost >= 0 ? 'text-success' : 'text-danger'">
-                                    {{ formatMoney(totalPartsSk - totalPartsCost) }} ₽
-                                </td>
-                                <td colspan="3"></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-            </div>
+            <SparePartsTable :application-id="appId" :current-tab="currentTab" @updated="onDataUpdated" />
 
             <!-- 3. СЕКЦИЯ: РЕМОНТНЫЕ И СЛЕСАРНЫЕ РАБОТЫ -->
             <div class="card border-0 shadow-sm mb-4">
@@ -346,6 +204,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
+import SparePartsTable from './parts/SparePartsTable.vue';
 
 const props = defineProps({
     applicationId: {
