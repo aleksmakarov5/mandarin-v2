@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\ApplicationGeneralController;
 use App\Http\Controllers\Api\ApplicationDocumentController;
+use App\Http\Controllers\Api\EstimateController;
 use App\Http\Controllers\Api\SparePartController;
 use App\Http\Controllers\Api\WorkController;
 use App\Http\Controllers\Api\TroubleshootingController;
@@ -88,6 +89,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // 1. ЗАЯВКИ (APPLICATIONS)
     // ==========================================
     Route::apiResource('applications', ApplicationController::class);
+    // Смета, Запчасти и Работы
+    Route::get('applications/{id}/estimate', [\App\Http\Controllers\Api\EstimateController::class, 'show']);
+    Route::post('applications/{id}/estimate/parts', [\App\Http\Controllers\Api\EstimateController::class, 'savePart']);
+    Route::delete('estimate/parts/{id}', [\App\Http\Controllers\Api\EstimateController::class, 'deletePart']);
+    Route::post('applications/{id}/estimate/works', [\App\Http\Controllers\Api\EstimateController::class, 'saveWork']);
+    Route::delete('estimate/works/{id}', [\App\Http\Controllers\Api\EstimateController::class, 'deleteWork']);
 
     // ==========================================
     // 2. ЗАПЧАСТИ (SPARE PARTS)
@@ -122,7 +129,19 @@ Route::middleware('auth:sanctum')->group(function () {
     // Route::post('applications/{id}/attachments', [AttachmentController::class, 'upload']);
     // Route::delete('attachments/{id}', [AttachmentController::class, 'destroy']);
 
+    Route::prefix('applications/{id}/estimate')->group(function () {
+        Route::get('/', [EstimateController::class, 'show']);
 
+        // Запчасти
+        Route::post('/spare-parts', [EstimateController::class, 'storeSparePart']);
+        Route::put('/spare-parts/{partId}', [EstimateController::class, 'updateSparePart']);
+        Route::delete('/spare-parts/{partId}', [EstimateController::class, 'destroySparePart']);
+
+        // Работы
+        Route::post('/works', [EstimateController::class, 'storeWork']);
+        Route::put('/works/{workId}', [EstimateController::class, 'updateWork']);
+        Route::delete('/works/{workId}', [EstimateController::class, 'destroyWork']);
+    });
 
 });
 
