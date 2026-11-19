@@ -48,8 +48,9 @@
             </div>
 
             <!-- 2. СЕКЦИЯ: ЗАПЧАСТИ -->
-            <SparePartsTable :application-id="appId" :current-tab="currentTab" @updated="onDataUpdated" />
-
+            <SparePartsTable v-if="effectiveAppId" :application-id="effectiveAppId"
+                :status-id="application?.id_status || application?.status_id" :application="application || {}"
+                :current-tab="currentTab" @updated="onEstimateUpdated" />
             <!-- 3. СЕКЦИЯ: РЕМОНТНЫЕ И СЛЕСАРНЫЕ РАБОТЫ -->
             <div class="card border-0 shadow-sm mb-4">
                 <div class="card-header bg-dark text-white py-2 d-flex justify-content-between align-items-center">
@@ -208,9 +209,23 @@ import SparePartsTable from '../../modules/applications/estimate/parts/SparePart
 
 const props = defineProps({
     applicationId: {
-        type: Number,
-        required: true,
+        type: [Number, String],
+        default: null,
     },
+    application: {
+        type: Object,
+        default: () => ({}),
+    },
+});
+
+// Гарантированно получаем ID без падений
+const effectiveAppId = computed(() => {
+    return Number(
+        props.applicationId ||
+        props.application?.id ||
+        route.params.id ||
+        0
+    );
 });
 
 const emit = defineEmits(['updated']);

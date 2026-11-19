@@ -90,11 +90,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // ==========================================
     Route::apiResource('applications', ApplicationController::class);
     // Смета, Запчасти и Работы
-    Route::get('applications/{id}/estimate', [\App\Http\Controllers\Api\EstimateController::class, 'show']);
-    Route::post('applications/{id}/estimate/parts', [\App\Http\Controllers\Api\EstimateController::class, 'savePart']);
-    Route::delete('estimate/parts/{id}', [\App\Http\Controllers\Api\EstimateController::class, 'deletePart']);
-    Route::post('applications/{id}/estimate/works', [\App\Http\Controllers\Api\EstimateController::class, 'saveWork']);
-    Route::delete('estimate/works/{id}', [\App\Http\Controllers\Api\EstimateController::class, 'deleteWork']);
+    // Route::get('applications/{id}/estimate', [\App\Http\Controllers\Api\EstimateController::class, 'show']);
+    // Route::post('applications/{id}/estimate/parts', [\App\Http\Controllers\Api\EstimateController::class, 'savePart']);
+    // Route::delete('estimate/parts/{id}', [\App\Http\Controllers\Api\EstimateController::class, 'deletePart']);
+    // Route::post('applications/{id}/estimate/works', [\App\Http\Controllers\Api\EstimateController::class, 'saveWork']);
+    // Route::delete('estimate/works/{id}', [\App\Http\Controllers\Api\EstimateController::class, 'deleteWork']);
 
     // ==========================================
     // 2. ЗАПЧАСТИ (SPARE PARTS)
@@ -146,7 +146,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/', [SparePartController::class, 'index']);
         Route::post('/', [SparePartController::class, 'store']);
         Route::post('/small-parts', [SparePartController::class, 'handleSmallParts']);
+        Route::post('/casco-discount', [SparePartController::class, 'updateCascoDiscount']); // <-- ДОЛЖЕН БЫТЬ Route::post
         Route::get('/history', [SparePartController::class, 'history']);
+        Route::post('/bulk-pzn-percent', [SparePartController::class, 'bulkIncreasePzn']);
+        Route::post('/{partId}/comments', [SparePartController::class, 'storeComment']);
         Route::put('/{partId}/field', [SparePartController::class, 'updateField']);
         Route::put('/{partId}/toggle-mrk', [SparePartController::class, 'toggleSelectedMrk']);
         Route::delete('/{partId}', [SparePartController::class, 'destroy']);

@@ -161,4 +161,75 @@ class User extends Authenticatable
     {
         return $this->hasOne(Service::class, 'user_id');
     }
+    public function hasBranchRole($roles): bool
+    {
+        $roles = is_array($roles) ? $roles : func_get_args();
+
+        // 1. Проверка по прямому полю роли пользователя (если есть role/user_role)
+        $currentRole = $this->role ?? $this->user_role ?? null;
+        if ($currentRole && in_array($currentRole, $roles, true)) {
+            return true;
+        }
+
+        // 2. Проверка через связанную группу пользователей
+        if ($this->relationLoaded('group') || $this->group) {
+            $groupCode = $this->group->code ?? $this->group->slug ?? $this->group->name ?? null;
+            if ($groupCode && in_array($groupCode, $roles, true)) {
+                return true;
+            }
+        }
+
+        // 3. Проверка через привязку к филиалу/СТО (если есть поле sto_id или branch_id)
+        if (in_array('sto', $roles, true) && (!empty($this->sto_id) || !empty($this->is_sto))) {
+            return true;
+        }
+
+        return false;
+    }
+
+    public function isSto(?int $branchId = null): bool
+    {
+        if ($this->isSystemAdmin()) {
+            return false;
+        }
+
+        // 1. Проверяем роль 8 (СТО) в связующей таблице филиала
+        if ($this->hasBranchRole(8, $branchId)) {
+            return true;
+        }
+
+        // 2. Проверяем наличие привязанной карточки автосервиса (Service)
+        if ($this->service()->exists()) {
+            // Если передан конкретный филиал — проверяем, привязан ли сервис к нему
+            if ($branchId !== null) {
+                return $this->service()
+                    ->whereHas('branches', fn($q) => $q->where('our_companies.id', $branchId))
+                    ->exists();
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    public function getServiceId(): ?int
+    {
+        // 1. Через прямую связь hasOne
+        if ($this->relationLoaded('service') && $this->service) {
+            return (int) $this->service->id;
+        }
+
+        $service = $this->service()->first();
+        if ($service) {
+            return (int) $service->id;
+        }
+
+        // 2. Фоллбэк: прямой запрос в таблицу services
+        $serviceId = \Illuminate\Support\Facades\DB::table('services')
+            ->where('user_id', $this->id)
+            ->value('id');
+
+        return $serviceId ? (int) $serviceId : null;
+    }
 }

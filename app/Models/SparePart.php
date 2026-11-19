@@ -12,7 +12,8 @@ class SparePart extends Model
     use HasFactory;
 
     protected $table = 'spare_parts';
-
+    // Разрешаем массовое заполнение всех полей кроме ID
+    protected $guarded = ['id'];
     protected $fillable = [
         'application_id',
         'name',
@@ -53,13 +54,25 @@ class SparePart extends Model
         return $this->belongsTo(Application::class, 'application_id');
     }
 
-    public function creator(): BelongsTo
+    public function creator()
     {
-        return $this->belongsTo(User::class, 'created_by_user_id');
+        return $this->belongsTo(User::class, 'created_by_user_id')->withDefault([
+            'name' => 'Пользователь',
+        ]);
     }
 
     public function histories(): HasMany
     {
         return $this->hasMany(SparePartHistory::class, 'spare_part_id')->orderBy('id', 'desc');
+    }
+
+    public function comments(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(SparePartComment::class, 'spare_part_id')->orderBy('created_at', 'asc');
+    }
+
+    public function latestComment(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(SparePartComment::class, 'spare_part_id')->latestOfMany();
     }
 }
