@@ -204,7 +204,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import axios from 'axios';
-import SparePartsTable from './parts/SparePartsTable.vue';
+import SparePartsTable from '../../modules/applications/estimate/parts/SparePartsTable.vue';
 
 const props = defineProps({
     applicationId: {

@@ -19,32 +19,65 @@ class SparePartController extends Controller
      */
     public function index(Request $request, int $applicationId): JsonResponse
     {
-        $app = Application::select('id', 'ub_type', 'loss_type', 'type_loss')->findOrFail($applicationId);
-        $user = $request->user();
+        try {
+            $user = $request->user();
 
-        // Проверяем роль пользователя: СТО (роль 7 / service) или сотрудник МРК/СПМ/Админ
-        $isStoUser = $user && method_exists($user, 'isSto') ? $user->isSto() : false;
-        if (!$isStoUser && $user) {
-            $isStoUser = (int) ($user->user_group_id ?? 0) === 7;
+            // 1. Безопасное определение типа убытка (КАСКО / ОСАГО)
+            $isCasco = false;
+            $app = \App\Models\Application::find($applicationId);
+            if ($app) {
+                // Проверяем все возможные варианты названий полей
+                $rawLoss = $app->ub_type ?? $app->type_loss ?? $app->loss_type ?? '';
+                $rawLossStr = mb_strtolower((string) $rawLoss);
+                $isCasco = str_contains($rawLossStr, 'каско')
+                    || str_contains($rawLossStr, 'casco')
+                    || $rawLossStr === '1'
+                    || $rawLossStr === '2';
+            }
+
+            // 2. Безопасное определение роли СТО
+            $isStoUser = false;
+            if ($user) {
+                if (method_exists($user, 'isSto')) {
+                    $isStoUser = $user->isSto();
+                } else {
+                    $groupId = (int) ($user->user_group_id ?? $user->GroupId ?? 0);
+                    $isStoUser = ($groupId === 7) || (bool) ($user->is_service ?? false);
+                }
+            }
+
+            // 3. Формирование запроса к запчастям
+            $query = \App\Models\SparePart::where('application_id', $applicationId);
+
+            // Безопасно подтягиваем создателя, только если есть таблица и поля
+            if (\Illuminate\Support\Facades\Schema::hasColumn('spare_parts', 'created_by_user_id')) {
+                $hasLastName = \Illuminate\Support\Facades\Schema::hasColumn('users', 'last_name');
+                $userCols = $hasLastName ? ['id', 'name', 'last_name'] : ['id', 'name'];
+                $query->with(['creator' => fn($q) => $q->select($userCols)]);
+            }
+
+            // Безопасная сортировка (проверяем наличие колонки is_small_parts)
+            if (\Illuminate\Support\Facades\Schema::hasColumn('spare_parts', 'is_small_parts')) {
+                $query->orderBy('is_small_parts', 'asc');
+            }
+            $query->orderBy('id', 'asc');
+
+            $parts = $query->get();
+
+            return response()->json([
+                'data' => $parts,
+                'is_casco' => $isCasco,
+                'is_sto' => $isStoUser,
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Ошибка в SparePartController@index: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'message' => 'Ошибка загрузки запчастей: ' . $e->getMessage(),
+            ], 500);
         }
-
-        $query = SparePart::with('creator:id,name,last_name')
-            ->where('application_id', $applicationId)
-            ->orderBy('is_small_parts', 'asc')
-            ->orderBy('id', 'asc');
-
-        // Для СТО можно отфильтровать закрытые поля на уровне SQL или отдать полностью
-        $parts = $query->get();
-
-        // Определяем тип убытка: КАСКО или ОСАГО
-        $rawLoss = mb_strtolower((string) ($app->ub_type ?? $app->loss_type ?? $app->type_loss ?? ''));
-        $isCasco = str_contains($rawLoss, 'каско') || str_contains($rawLoss, 'casco') || $rawLoss === '2';
-
-        return response()->json([
-            'data' => $parts,
-            'is_casco' => $isCasco,
-            'is_sto' => $isStoUser,
-        ]);
     }
 
     /**
