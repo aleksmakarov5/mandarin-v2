@@ -322,7 +322,6 @@ class StandardWorkController extends Controller
 
             $query = DB::table('standard_works');
 
-            // Фильтруем по is_active только если колонка реально есть
             if (Schema::hasColumn('standard_works', 'is_active')) {
                 $query->where(function ($q) {
                     $q->where('is_active', true)
@@ -333,7 +332,7 @@ class StandardWorkController extends Controller
 
             $works = $query->orderBy('name', 'asc')->get();
 
-            // Если СТО выбрано, подтягиваем индивидуальные цены сервиса
+            // Если выбран автосервис, подтягиваем его индивидуальный прайс
             $servicePrices = collect();
             if ($serviceId > 0 && Schema::hasTable('service_work_prices')) {
                 $serviceCol = Schema::hasColumn('service_work_prices', 'service_id') ? 'service_id' : 'our_company_id';
@@ -350,6 +349,8 @@ class StandardWorkController extends Controller
                 return [
                     'id' => $w->id,
                     'name' => $w->name,
+                    'category' => $w->category ?? 'слесарные',
+                    'default_norm_hours' => (float) ($w->default_norm_hours ?? 0),
                     'base_price' => $basePrice,
                     'service_price' => $servicePrice,
                     'final_price' => $servicePrice !== null ? $servicePrice : $basePrice,
@@ -359,8 +360,8 @@ class StandardWorkController extends Controller
 
             return response()->json(['data' => $result]);
         } catch (\Throwable $e) {
-            \Log::error('getApplicationOptions error: ' . $e->getMessage());
-            return response()->json(['data' => [], 'error' => $e->getMessage()], 500);
+            Log::error('StandardWorkController@getApplicationOptions error: ' . $e->getMessage());
+            return response()->json(['data' => [], 'error' => $e->getMessage()], 200); // возвращаем 200 с пустым массивом
         }
     }
 }

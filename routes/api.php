@@ -164,6 +164,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('{id}/field', [\App\Http\Controllers\Api\StandardWorkController::class, 'updateField']);
         Route::post('service-prices/{serviceId}', [\App\Http\Controllers\Api\StandardWorkController::class, 'setServicePrice']);
         Route::delete('{id}', [\App\Http\Controllers\Api\StandardWorkController::class, 'destroy']);
+        Route::get('/application-options', [\App\Http\Controllers\Api\StandardWorkController::class, 'getApplicationOptions']);
     });
 
     // Калькуляция: ремонтные и окрасочные работы
