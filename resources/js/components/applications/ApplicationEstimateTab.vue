@@ -90,8 +90,8 @@
 
                     <div class="col-12 col-xl-6">
                         <div class="card border-0 shadow-sm h-100 p-2 bg-white">
-                            <FactWorksTable :application-id="effectiveAppId" :user-role="currentUserRole"
-                                @updated="onEstimateUpdated" />
+                            <FactWorksTable v-if="!isSpm" :application-id="applicationId" :application="application"
+                                :service-id="application.id_service" @updated="onEstimateUpdated" />
                         </div>
                     </div>
                 </template>

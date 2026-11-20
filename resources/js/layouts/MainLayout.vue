@@ -206,12 +206,9 @@
                 </div>
 
                 <div class="d-flex align-items-center gap-1 gap-sm-2 flex-shrink-0">
-                    <button
-                        class="btn btn-warning btn-sm fw-bold d-flex align-items-center justify-content-center header-add-btn text-dark shadow-sm"
-                        @click="$router.push('/applications/create')" title="Добавить заявку">
-                        <i class="bi bi-plus-lg fs-6"></i>
-                        <span class="d-none d-sm-inline ms-1">Добавить заявку</span>
-                    </button>
+                    <div class="user-short-name fw-lighter small text-truncate">
+                        {{ authStore.userShortName }}
+                    </div>
 
                     <div class="header-clock-container flex-shrink-0">
                         <header-clock />

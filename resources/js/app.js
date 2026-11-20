@@ -8,6 +8,7 @@ window.bootstrap = bootstrap;
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import router from './router';
+import { initRightClickNewTab } from './plugins/contextMenuNewTab';
 import App from './App.vue';
 import { maskPhoneDirective } from './directives/maskPhone';
 
@@ -31,4 +32,6 @@ axios.interceptors.response.use(
 app.use(pinia);
 app.use(router);
 app.directive('mask-phone', maskPhoneDirective);
+// Инициализируем глобальное открытие по правому клику
+initRightClickNewTab(router);
 app.mount('#app');
