@@ -54,7 +54,7 @@
                             <th style="width: 38px;">#</th>
                             <th class="text-start ps-3">Наименование работы</th>
                             <th style="width: 140px;">Цена (₽)</th>
-                            <th v-if="serviceApproved || isServiceUser" style="width: 125px;">Статус</th>
+                            <th style="width: 140px;">Статус / Согласование</th>
                             <th style="width: 44px;"></th>
                         </tr>
                     </thead>
@@ -79,25 +79,33 @@
                                 {{ formatMoney(work.price) }}
                             </td>
 
-                            <!-- Статус -->
-                            <td v-if="serviceApproved || isServiceUser" class="text-center p-1">
-                                <div v-if="!isServiceUser && !fullyApproved"
-                                    class="d-flex justify-content-center gap-1">
+                            <!-- Статус: кнопки согласования для МРК или бейдж -->
+                            <td class="text-center p-1">
+                                <!-- Для МРК/Наставника кнопки Принять/Отклонить для позиций сервиса -->
+                                <div v-if="canReviewRow(work)"
+                                    class="d-flex align-items-center justify-content-center gap-1">
                                     <button type="button" class="btn btn-xs"
-                                        :class="work.approval_status === 'approved' ? 'btn-success' : 'btn-outline-success'"
+                                        :class="work.approval_status === 'approved' ? 'btn-success text-white' : 'btn-outline-success'"
                                         title="Принять позицию" @click="setRowApproval(work, 'approved')">
                                         <i class="bi bi-check-lg"></i>
                                     </button>
                                     <button type="button" class="btn btn-xs"
-                                        :class="work.approval_status === 'rejected' ? 'btn-danger' : 'btn-outline-danger'"
+                                        :class="work.approval_status === 'rejected' ? 'btn-danger text-white' : 'btn-outline-danger'"
                                         title="Отклонить позицию" @click="setRowApproval(work, 'rejected')">
                                         <i class="bi bi-x-lg"></i>
                                     </button>
+                                    <span v-if="work.approval_status === 'pending'"
+                                        class="badge bg-warning text-dark font-monospace ms-1"
+                                        style="font-size: 0.65rem;">
+                                        Новая
+                                    </span>
                                 </div>
-                                <span v-else class="badge font-monospace"
-                                    :class="getApprovalBadgeClass(work.approval_status)">
-                                    {{ translateApproval(work.approval_status) }}
-                                </span>
+                                <div v-else>
+                                    <span class="badge font-monospace"
+                                        :class="getApprovalBadgeClass(work.approval_status)">
+                                        {{ translateApproval(work.approval_status) }}
+                                    </span>
+                                </div>
                             </td>
 
                             <!-- Удаление -->
@@ -133,7 +141,7 @@
                 </div>
 
                 <div class="text-muted small font-monospace">
-                    * Цвета строк указывают на автора изменений (МРК, Наставник, Сервис)
+                    * Цвета строк: Голубой — МРК, Желтый — Сервис, Сиреневый — Наставник
                 </div>
             </div>
         </div>
@@ -154,13 +162,11 @@
                         <button type="button" class="btn-close" @click="showDirectoryModal = false"></button>
                     </div>
                     <div class="modal-body p-3" style="max-height: 420px; overflow-y: auto;">
-                        <!-- Подсказка, если сервис не выбран -->
                         <div v-if="!currentEffectiveServiceId" class="alert alert-info py-1.5 px-2.5 small mb-2">
                             <i class="bi bi-info-circle me-1"></i>
                             Автосервис в деле не выбран. Отображаются все типовые работы с базовыми ценами.
                         </div>
 
-                        <!-- Подсказка, если сервис выбран -->
                         <div v-else class="alert alert-success py-1.5 px-2.5 small mb-2">
                             <i class="bi bi-check-circle me-1"></i>
                             Применяются тарифы выбранного автосервиса.
@@ -204,7 +210,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import axios from 'axios';
 
 const props = defineProps({
@@ -212,6 +218,7 @@ const props = defineProps({
     serviceId: { type: [Number, String], default: null },
     application: { type: Object, default: () => ({}) },
     userRole: { type: String, default: 'mrk' },
+    currentUser: { type: Object, default: () => ({}) },
 });
 
 const emit = defineEmits(['updated']);
@@ -224,7 +231,38 @@ const fullyApproved = ref(false);
 const canCompleteApproval = ref(false);
 const serverServiceId = ref(null);
 
-const isServiceUser = computed(() => props.userRole === 'service');
+// Надежное определение: является ли текущий пользователь Сервисом (СТО)
+const isServiceUser = computed(() => {
+    // 1. По переданному пропсу userRole
+    const roleStr = String(props.userRole || '').toLowerCase();
+    if (roleStr === 'service' || roleStr === 'sto' || roleStr.includes('сервис') || roleStr.includes('сто')) {
+        return true;
+    }
+
+    const u = props.currentUser || {};
+
+    // 2. По ID группы (в разных версиях базы: GroupId, group_id, user_group_id, role_id)
+    const gid = Number(u.GroupId ?? u.group_id ?? u.user_group_id ?? u.role_id ?? u.id_group ?? 0);
+    if (gid === 8) {
+        return true; // Группа 8 = Автосервис (СТО)
+    }
+
+    // 3. По флагу сервиса или наличию привязанного ID сервиса
+    if (u.is_service === true || u.is_service === 1 || u.is_service === '1' || u.is_sto === true) {
+        return true;
+    }
+    if (Number(u.service_id ?? u.id_service ?? 0) > 0) {
+        return true;
+    }
+
+    // 4. По имени роли/группы внутри объекта пользователя
+    const groupName = String(u.group?.name || u.role?.name || u.group_name || '').toLowerCase();
+    if (groupName.includes('сервис') || groupName.includes('сто')) {
+        return true;
+    }
+
+    return false;
+});
 
 // Эффективный ID автосервиса дела
 const currentEffectiveServiceId = computed(() => {
@@ -242,6 +280,31 @@ const currentEffectiveServiceId = computed(() => {
 const currentServiceName = computed(() => {
     return props.application?.service?.name || props.application?.service_name || '';
 });
+
+// Слушаем смену автосервиса в деле и автоматически пересчитываем цены под новый прайс СТО
+watch(
+    () => currentEffectiveServiceId.value,
+    async (newSid, oldSid) => {
+        if (newSid && newSid !== oldSid) {
+            await syncWithService(newSid);
+        }
+    }
+);
+
+const syncWithService = async (sid) => {
+    try {
+        const res = await axios.post(`/api/applications/${props.applicationId}/plan-works/sync-service-prices`, {
+            service_id: sid,
+        });
+        if (res.data?.data) {
+            works.value = res.data.data;
+            totalSum.value = res.data.total_sum || 0;
+            emit('updated');
+        }
+    } catch (err) {
+        console.error('Ошибка обновления цен под сервис:', err);
+    }
+};
 
 // Модалка справочника
 const showDirectoryModal = ref(false);
@@ -268,7 +331,7 @@ const fetchPlanWorks = async () => {
     }
 };
 
-// 1. Добавление вручной строки
+// 1. Добавление вручную
 const addManualRow = async () => {
     try {
         const res = await axios.post(`/api/applications/${props.applicationId}/plan-works`, {
@@ -285,7 +348,7 @@ const addManualRow = async () => {
     }
 };
 
-// 2. Открытие модалки справочника (БЕЗ подстановки id=1!)
+// 2. Открытие справочника
 const openDirectoryModal = async () => {
     showDirectoryModal.value = true;
     try {
@@ -343,6 +406,66 @@ const saveField = async (work, field, rawValue) => {
     }
 };
 
+// Проверка: нужно ли МРК проверять строку
+const canReviewRow = (work) => {
+    // Жесткий запрет сервису
+    if (isServiceUser.value) {
+        return false;
+    }
+
+    // Доступно только для строк, требующих проверки или созданных сервисом (author_type === 4)
+    const st = work.approval_status ?? work.status ?? '';
+    const isServiceAuthor = Number(work.author_type) === 4;
+
+    return isServiceAuthor || st === 'pending';
+};
+
+// МРК нажимает Принять / Отклонить конкретную строку
+// МРК нажимает Принять / Отклонить конкретную строку
+const setRowApproval = async (work, status) => {
+    try {
+        const res = await axios.put(`/api/applications/${props.applicationId}/plan-works/${work.id}/row-approval`, {
+            status,
+        });
+        if (res.data?.data) {
+            work.approval_status = res.data.data.approval_status;
+            work.status = res.data.data.status ?? res.data.data.approval_status;
+        } else {
+            work.approval_status = status;
+            work.status = status;
+        }
+        recalcTotal();
+        emit('updated');
+    } catch (e) {
+        console.error('Ошибка смены статуса строки:', e);
+    }
+};
+
+// Сервис нажимает "Согласовать с МРК"
+const submitServiceApproval = async () => {
+    if (!confirm('Отправить все плановые работы на согласование МРК?')) return;
+    try {
+        await axios.post(`/api/applications/${props.applicationId}/plan-works/service-submit`);
+        serviceApproved.value = true;
+        fetchPlanWorks();
+        emit('updated');
+    } catch (e) {
+        console.error('Ошибка отправки на согласование:', e);
+    }
+};
+
+// МРК нажимает "Согласование завершено"
+const completeApproval = async () => {
+    if (!confirm('Завершить согласование плановых работ по делу?')) return;
+    try {
+        await axios.post(`/api/applications/${props.applicationId}/plan-works/complete-approval`);
+        fullyApproved.value = true;
+        emit('updated');
+    } catch (e) {
+        console.error('Ошибка завершения согласования:', e);
+    }
+};
+
 const deleteWork = async (work) => {
     if (!confirm(`Удалить работу "${work.name}"?`)) return;
     try {
@@ -355,41 +478,32 @@ const deleteWork = async (work) => {
     }
 };
 
+// Пересчет суммы строго из принятых (approved) позиций
 const recalcTotal = () => {
-    totalSum.value = works.value.reduce((acc, w) => acc + (parseFloat(w.price) || 0), 0);
+    totalSum.value = works.value
+        .filter((w) => {
+            const st = w.approval_status ?? w.status;
+            return st === 'approved';
+        })
+        .reduce((acc, w) => acc + (parseFloat(w.price) || 0), 0);
 };
 
-// Определение класса цвета строки по роли/типу автора
+// Определение цвета строки
 const getAuthorBgClass = (work) => {
     if (!work) return 'row-auto';
 
     const type = Number(work.author_type ?? 0);
     const role = String(work.author_role ?? '').toLowerCase();
 
-    // 1: МРК дела (пастельно-синий / голубой)
-    if (type === 1 || role === 'mrk') {
-        return 'row-mrk';
-    }
-    // 2: Наставник дела (сиреневый)
-    if (type === 2 || role === 'mentor') {
-        return 'row-mentor';
-    }
-    // 3: Запчастист дела (зеленый)
-    if (type === 3 || role === 'spm') {
-        return 'row-spm';
-    }
-    // 4: Сервис дела (желтый)
-    if (type === 4 || role === 'service') {
-        return 'row-service';
-    }
-    // 5: Другой пользователь (песочно-коричневый)
-    if (type === 5 || role === 'other') {
-        return 'row-other';
-    }
+    if (type === 1 || role === 'mrk') return 'row-mrk';
+    if (type === 2 || role === 'mentor') return 'row-mentor';
+    if (type === 3 || role === 'spm') return 'row-spm';
+    if (type === 4 || role === 'service') return 'row-service';
+    if (type === 5 || role === 'other') return 'row-other';
 
-    // 0: Авто / Калькуляция (белый)
     return 'row-auto';
 };
+
 const getApprovalBadgeClass = (st) => {
     switch (st) {
         case 'approved': return 'bg-success text-white';
@@ -450,26 +564,6 @@ onMounted(fetchPlanWorks);
     border: 1px solid #e2e8f0;
 }
 
-.row-auto td {
-    background-color: #ffffff;
-}
-
-.row-mrk td {
-    background-color: #eff6ff !important;
-}
-
-.row-mentor td {
-    background-color: #f5f3ff !important;
-}
-
-.row-service td {
-    background-color: #fefce8 !important;
-}
-
-.row-other td {
-    background-color: #fdf4f0 !important;
-}
-
 .editable-cell {
     outline: none;
     cursor: text;
@@ -520,56 +614,67 @@ onMounted(fetchPlanWorks);
     width: 90%;
 }
 
-/* ЦВЕТА СТРОК АВТОРОВ (1:1 со сметой запчастей) */
+/* ЦВЕТА СТРОК АВТОРОВ (перебивают любые стили td) */
 
 /* 0. Автоматически / по умолчанию — БЕЛЫЙ */
+:deep(.table-mandarin tbody tr.row-auto td),
 .table-mandarin tbody tr.row-auto td {
     background-color: #ffffff !important;
+    color: #1e293b;
 }
 
 /* 1. МРК ДЕЛА — ПАСТЕЛЬНО-СИНИЙ / ГОЛУБОЙ (#e0f2fe) */
+:deep(.table-mandarin tbody tr.row-mrk td),
 .table-mandarin tbody tr.row-mrk td {
     background-color: #e0f2fe !important;
-    color: #0c4a6e;
+    color: #0c4a6e !important;
 }
 
+:deep(.table-mandarin tbody tr.row-mrk:hover td),
 .table-mandarin tbody tr.row-mrk:hover td {
     background-color: #bae6fd !important;
 }
 
 /* 2. НАСТАВНИК ДЕЛА — СИРЕНЕВЫЙ / ЛАВАНДОВЫЙ (#f3e8ff) */
+:deep(.table-mandarin tbody tr.row-mentor td),
 .table-mandarin tbody tr.row-mentor td {
     background-color: #f3e8ff !important;
-    color: #581c87;
+    color: #581c87 !important;
 }
 
+:deep(.table-mandarin tbody tr.row-mentor:hover td),
 .table-mandarin tbody tr.row-mentor:hover td {
     background-color: #e9d5ff !important;
 }
 
 /* 3. ЗАПЧАСТИСТ — ЗЕЛЕНЫЙ (#dcfce7) */
+:deep(.table-mandarin tbody tr.row-spm td),
 .table-mandarin tbody tr.row-spm td {
     background-color: #dcfce7 !important;
-    color: #14532d;
+    color: #14532d !important;
 }
 
 /* 4. СЕРВИС / СТО — ПАСТЕЛЬНО-ЖЕЛТЫЙ (#fef9c3) */
+:deep(.table-mandarin tbody tr.row-service td),
 .table-mandarin tbody tr.row-service td {
     background-color: #fef9c3 !important;
-    color: #713f12;
+    color: #713f12 !important;
 }
 
+:deep(.table-mandarin tbody tr.row-service:hover td),
 .table-mandarin tbody tr.row-service:hover td {
     background-color: #fef08a !important;
 }
 
 /* 5. ДРУГОЙ ПОЛЬЗОВАТЕЛЬ — ПЕСОЧНО-КОРИЧНЕВЫЙ (#fed7aa) */
+:deep(.table-mandarin tbody tr.row-other td),
 .table-mandarin tbody tr.row-other td {
     background-color: #fed7aa !important;
-    color: #7c2d12;
+    color: #7c2d12 !important;
 }
 
 /* Отклоненные строки сервиса */
+:deep(.table-mandarin tbody tr.row-rejected td),
 .table-mandarin tbody tr.row-rejected td {
     background-color: #fee2e2 !important;
     text-decoration: line-through;

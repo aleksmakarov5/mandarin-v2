@@ -191,13 +191,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/', [\App\Http\Controllers\Api\PlanWorkController::class, 'store']); // <-- ЭТОГО МАРШРУТА НЕ БЫЛО
         Route::put('/{workId}/field', [\App\Http\Controllers\Api\PlanWorkController::class, 'updateField']);
         Route::delete('/{workId}', [\App\Http\Controllers\Api\PlanWorkController::class, 'destroy']);
+        Route::match(['put', 'patch', 'post'], '/{workId}/row-approval', [\App\Http\Controllers\Api\PlanWorkController::class, 'setRowApproval']);
         Route::post('/sync-service-prices', [\App\Http\Controllers\Api\PlanWorkController::class, 'syncPricesWithService']);
         Route::post('/service-approval', [\App\Http\Controllers\Api\PlanWorkController::class, 'submitServiceApproval']);
         Route::post('/complete-approval', [\App\Http\Controllers\Api\PlanWorkController::class, 'completeApproval']);
+        Route::post('/sync-service-prices', [\App\Http\Controllers\Api\PlanWorkController::class, 'syncPricesWithService']);
     });
 
     // Эндпоинт опций справочника работ для сметы
-    Route::get('standard-works/application-options', [\App\Http\Controllers\Api\Admin\StandardWorkController::class, 'getApplicationOptions']);
 
 });
 

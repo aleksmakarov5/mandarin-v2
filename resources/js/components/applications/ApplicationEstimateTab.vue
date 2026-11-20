@@ -80,10 +80,11 @@
                 <template v-if="!isSpm">
                     <div class="col-12 col-xl-6">
                         <div class="card border-0 shadow-sm h-100 p-2 bg-white">
-                            <PlanWorksTable v-if="!isSpmUser" ref="planWorksRef" :application-id="effectiveAppId"
-                                :service-id="applicationData?.id_service || applicationData?.service_id"
-                                :application="applicationData" :user-role="effectiveUserRole"
-                                @updated="onSubModuleUpdated" />
+                            <PlanWorksTable :application-id="application.id"
+                                :service-id="application.id_service || application.service_id"
+                                :application="application" :user-role="userRole"
+                                :current-user="currentUser || $store?.state?.auth?.user || authUser"
+                                @updated="fetchApplication" />
                         </div>
                     </div>
 

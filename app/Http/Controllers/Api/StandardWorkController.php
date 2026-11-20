@@ -316,13 +316,15 @@ class StandardWorkController extends Controller
         try {
             $serviceId = (int) $request->input('service_id', 0);
 
-            if (!Schema::hasTable('standard_works')) {
+            if (!\Illuminate\Support\Facades\Schema::hasTable('standard_works')) {
                 return response()->json(['data' => []]);
             }
 
-            $query = DB::table('standard_works');
+            // Читаем все существующие колонки таблицы
+            $cols = \Illuminate\Support\Facades\Schema::getColumnListing('standard_works');
 
-            if (Schema::hasColumn('standard_works', 'is_active')) {
+            $query = \Illuminate\Support\Facades\DB::table('standard_works');
+            if (in_array('is_active', $cols)) {
                 $query->where(function ($q) {
                     $q->where('is_active', true)
                         ->orWhere('is_active', 1)
@@ -332,36 +334,52 @@ class StandardWorkController extends Controller
 
             $works = $query->orderBy('name', 'asc')->get();
 
-            // Если выбран автосервис, подтягиваем его индивидуальный прайс
+            // Индивидуальные цены для СТО (если выбрано)
             $servicePrices = collect();
-            if ($serviceId > 0 && Schema::hasTable('service_work_prices')) {
-                $serviceCol = Schema::hasColumn('service_work_prices', 'service_id') ? 'service_id' : 'our_company_id';
-                $servicePrices = DB::table('service_work_prices')
-                    ->where($serviceCol, $serviceId)
-                    ->pluck('price', 'standard_work_id');
+            if ($serviceId > 0 && \Illuminate\Support\Facades\Schema::hasTable('service_work_prices')) {
+                $sCols = \Illuminate\Support\Facades\Schema::getColumnListing('service_work_prices');
+                $srvCol = in_array('service_id', $sCols) ? 'service_id' : (in_array('our_company_id', $sCols) ? 'our_company_id' : null);
+
+                if ($srvCol) {
+                    $servicePrices = \Illuminate\Support\Facades\DB::table('service_work_prices')
+                        ->where($srvCol, $serviceId)
+                        ->pluck('price', 'standard_work_id');
+                }
             }
 
-            $result = $works->map(function ($w) use ($serviceId, $servicePrices) {
-                $basePrice = (float) ($w->base_price ?? $w->price ?? 0);
-                $hasServicePrice = $servicePrices->has($w->id);
-                $servicePrice = $hasServicePrice ? (float) $servicePrices->get($w->id) : null;
+            $result = $works->map(function ($w) use ($servicePrices) {
+                // Поддерживаем любые варианты названий колонок цен: base_price, price, summ
+                $base = (float) ($w->base_price ?? $w->price ?? $w->summ ?? 0);
+                $hasService = $servicePrices->has($w->id);
+                $sPrice = $hasService ? (float) $servicePrices->get($w->id) : null;
 
                 return [
                     'id' => $w->id,
                     'name' => $w->name,
                     'category' => $w->category ?? 'слесарные',
-                    'default_norm_hours' => (float) ($w->default_norm_hours ?? 0),
-                    'base_price' => $basePrice,
-                    'service_price' => $servicePrice,
-                    'final_price' => $servicePrice !== null ? $servicePrice : $basePrice,
-                    'has_service_price' => $hasServicePrice,
+                    'default_norm_hours' => (float) ($w->default_norm_hours ?? $w->norm_hours ?? 0),
+                    'base_price' => $base,
+                    'service_price' => $sPrice,
+                    'final_price' => $sPrice !== null ? $sPrice : $base,
+                    'has_service_price' => $hasService,
                 ];
             });
 
             return response()->json(['data' => $result]);
         } catch (\Throwable $e) {
-            Log::error('StandardWorkController@getApplicationOptions error: ' . $e->getMessage());
-            return response()->json(['data' => [], 'error' => $e->getMessage()], 200); // возвращаем 200 с пустым массивом
+            \Illuminate\Support\Facades\Log::error('StandardWorkController@getApplicationOptions error: ' . $e->getMessage());
+            // Возвращаем пустой массив data с текстом ошибки в поле error, чтобы не отдавать 500
+            return response()->json([
+                'data' => [],
+                'error' => $e->getMessage(),
+                'file' => basename($e->getFile()) . ':' . $e->getLine()
+            ], 200);
         }
+    }
+
+    // Алиас на случай, если в роутах вызвано альтернативное имя:
+    public function getWorksForApplication(Request $request): JsonResponse
+    {
+        return $this->getApplicationOptions($request);
     }
 }
