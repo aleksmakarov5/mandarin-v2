@@ -63,13 +63,13 @@
             <div class="row g-3">
                 <!-- ПАРА 1: Ремонтные работы (по калькуляции) — Окрасочные работы (по калькуляции) -->
                 <template v-if="!isService && !isSpm">
-                    <div class="col-12 col-xl-6">
+                    <div class="col-12 col-xl-12">
                         <div class="card border-0 shadow-sm h-100 p-2 bg-white">
                             <RepairWorksTable :application-id="effectiveAppId" @updated="onEstimateUpdated" />
                         </div>
                     </div>
 
-                    <div class="col-12 col-xl-6">
+                    <div class="col-12 col-xl-12">
                         <div class="card border-0 shadow-sm h-100 p-2 bg-white">
                             <PaintWorksTable :application-id="effectiveAppId" @updated="onEstimateUpdated" />
                         </div>
@@ -80,10 +80,10 @@
                 <template v-if="!isSpm">
                     <div class="col-12 col-xl-6">
                         <div class="card border-0 shadow-sm h-100 p-2 bg-white">
-                            <PlanWorksTable :application-id="application.id"
+                            <PlanWorksTable v-if="application && (application.id || route.params.id)"
+                                :application-id="Number(application.id || route.params.id)"
                                 :service-id="application.id_service || application.service_id"
-                                :application="application" :user-role="userRole"
-                                :current-user="currentUser || $store?.state?.auth?.user || authUser"
+                                :application="application" :user-role="userRole" :current-user="currentUser"
                                 @updated="fetchApplication" />
                         </div>
                     </div>

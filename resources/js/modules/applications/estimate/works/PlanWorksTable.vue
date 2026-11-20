@@ -1,7 +1,8 @@
 <template>
     <div class="plan-works-module mb-4">
         <!-- ЗАГОЛОВОК АККОРДЕОНА -->
-        <div class="section-header-row d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom">
+        <div
+            class="section-header-row d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom flex-wrap gap-2">
             <div class="d-flex align-items-center gap-2 cursor-pointer select-none accordion-toggle-btn"
                 @click="isCollapsed = !isCollapsed">
                 <div class="section-icon-box bg-primary text-white p-1 rounded">
@@ -23,24 +24,39 @@
                 </h6>
             </div>
 
-            <!-- БАДЖ ИТОГО + КНОПКИ -->
-            <div class="d-flex align-items-center gap-2">
+            <!-- БАДЖ ИТОГО + КНОПКИ + ИСТОРИЯ ИЗМЕНЕНИЙ -->
+            <div class="d-flex align-items-center gap-2 flex-wrap">
                 <div
                     class="summary-pill d-flex align-items-center gap-2 px-2.5 py-1 bg-dark text-white rounded font-monospace">
                     <span class="text-white-50 small">Итого:</span>
                     <span class="fw-bold">{{ formatMoney(totalSum) }} ₽</span>
                 </div>
 
+                <!-- Кнопка Сервиса: "Согласовать" -->
                 <button v-if="isServiceUser && !serviceApproved" type="button"
                     class="btn btn-sm btn-warning fw-bold d-flex align-items-center shadow-xs"
                     @click="submitServiceApproval">
                     <i class="bi bi-send-check me-1.5"></i> Согласовать с МРК
                 </button>
 
+                <!-- Кнопка МРК / Наставника: "Согласование завершено" -->
                 <button v-if="!isServiceUser && canCompleteApproval && !fullyApproved" type="button"
                     class="btn btn-sm btn-success fw-bold d-flex align-items-center shadow-xs"
                     @click="completeApproval">
                     <i class="bi bi-check-circle-fill me-1.5"></i> Согласование завершено
+                </button>
+                <!-- Кнопка быстрой сверки/пересчета цен под текущий автосервис -->
+                <button v-if="currentEffectiveServiceId" type="button"
+                    class="btn btn-sm btn-outline-primary fw-semibold d-flex align-items-center shadow-xs"
+                    title="Пересчитать цены позиций из каталога по прайс-листу выбранного СТО"
+                    @click="syncWithService(currentEffectiveServiceId)">
+                    <i class="bi bi-arrow-repeat me-1.5"></i> Обновить цены СТО
+                </button>
+                <!-- Кнопка "История изменений" 1:1 как в Запчастях -->
+                <button type="button"
+                    class="btn btn-sm btn-outline-secondary btn-history fw-semibold d-flex align-items-center shadow-xs"
+                    @click="openHistoryModal">
+                    <i class="bi bi-clock-history me-1 text-primary"></i> История
                 </button>
             </div>
         </div>
@@ -79,9 +95,8 @@
                                 {{ formatMoney(work.price) }}
                             </td>
 
-                            <!-- Статус: кнопки согласования для МРК или бейдж -->
+                            <!-- Статус / Согласование -->
                             <td class="text-center p-1">
-                                <!-- Для МРК/Наставника кнопки Принять/Отклонить для позиций сервиса -->
                                 <div v-if="canReviewRow(work)"
                                     class="d-flex align-items-center justify-content-center gap-1">
                                     <button type="button" class="btn btn-xs"
@@ -154,8 +169,11 @@
                         class="modal-header d-flex justify-content-between align-items-center p-3 border-bottom bg-light">
                         <h6 class="m-0 fw-bold d-flex align-items-center">
                             <i class="bi bi-book-half me-2 text-primary"></i>
-                            <span v-if="currentEffectiveServiceId">
-                                Прайс СТО: {{ currentServiceName || ('#' + currentEffectiveServiceId) }}
+                            <span v-if="effectiveServiceName">
+                                Прайс СТО: {{ effectiveServiceName }}
+                            </span>
+                            <span v-else-if="currentEffectiveServiceId">
+                                Прайс СТО: #{{ currentEffectiveServiceId }}
                             </span>
                             <span v-else>Общий справочник типовых работ (базовые цены)</span>
                         </h6>
@@ -169,7 +187,7 @@
 
                         <div v-else class="alert alert-success py-1.5 px-2.5 small mb-2">
                             <i class="bi bi-check-circle me-1"></i>
-                            Применяются тарифы выбранного автосервиса.
+                            Применяются индивидуальные тарифы сервиса: <strong>{{ effectiveServiceName }}</strong>
                         </div>
 
                         <input v-model="dirSearch" type="text" class="form-control form-control-sm mb-3"
@@ -206,6 +224,64 @@
                 </div>
             </div>
         </Teleport>
+
+        <!-- МОДАЛЬНОЕ ОКНО ИСТОРИИ ИЗМЕНЕНИЙ (1:1 как в Запчастях) -->
+        <Teleport to="body">
+            <div v-if="showHistoryModal" class="modal-backdrop-custom" @click="showHistoryModal = false">
+                <div class="modal-dialog-custom shadow-lg" @click.stop style="max-width: 820px;">
+                    <div
+                        class="modal-header d-flex justify-content-between align-items-center p-3 border-bottom bg-light">
+                        <h6 class="m-0 fw-bold d-flex align-items-center">
+                            <i class="bi bi-clock-history me-2 text-primary fs-5"></i>
+                            История изменений плановых работ дела #{{ applicationId }}
+                        </h6>
+                        <button type="button" class="btn-close" @click="showHistoryModal = false"></button>
+                    </div>
+                    <div class="modal-body p-3" style="max-height: 480px; overflow-y: auto;">
+                        <div v-if="historyLoading" class="text-center py-4 text-muted">
+                            <span class="spinner-border spinner-border-sm text-primary me-2"></span>
+                            Загрузка истории...
+                        </div>
+                        <div v-else-if="historyList.length === 0" class="text-center py-4 text-muted">
+                            История изменений пока пуста.
+                        </div>
+                        <table v-else class="table table-sm table-striped history-table mb-0 align-middle">
+                            <thead>
+                                <tr class="small text-muted border-bottom">
+                                    <th style="width: 130px;">Дата / Время</th>
+                                    <th style="width: 140px;">Сотрудник</th>
+                                    <th style="width: 140px;">Поле / Действие</th>
+                                    <th>Было</th>
+                                    <th>Стало</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="h in historyList" :key="h.id" class="small">
+                                    <td class="font-monospace text-nowrap">{{ formatDateTime(h.created_at) }}</td>
+                                    <td class="fw-semibold">
+                                        {{ h.user ? (h.user.last_name ? (h.user.last_name + ' ' + (h.user.name || '')) :
+                                            h.user.name) : 'Система' }}
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-light text-dark border font-monospace">
+                                            {{ translateHistoryField(h.field_name || h.action_type) }}
+                                        </span>
+                                    </td>
+                                    <td class="text-danger text-truncate font-monospace" style="max-width: 180px;"
+                                        :title="h.old_value">
+                                        {{ h.old_value || '—' }}
+                                    </td>
+                                    <td class="text-success text-truncate font-monospace fw-semibold"
+                                        style="max-width: 180px;" :title="h.new_value">
+                                        {{ h.new_value || '—' }}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
     </div>
 </template>
 
@@ -230,41 +306,19 @@ const serviceApproved = ref(false);
 const fullyApproved = ref(false);
 const canCompleteApproval = ref(false);
 const serverServiceId = ref(null);
+const serverServiceName = ref('');
+const serverIsServiceUser = ref(false);
 
-// Надежное определение: является ли текущий пользователь Сервисом (СТО)
+// История изменений
+const showHistoryModal = ref(false);
+const historyLoading = ref(false);
+const historyList = ref([]);
+
 const isServiceUser = computed(() => {
-    // 1. По переданному пропсу userRole
-    const roleStr = String(props.userRole || '').toLowerCase();
-    if (roleStr === 'service' || roleStr === 'sto' || roleStr.includes('сервис') || roleStr.includes('сто')) {
-        return true;
-    }
-
-    const u = props.currentUser || {};
-
-    // 2. По ID группы (в разных версиях базы: GroupId, group_id, user_group_id, role_id)
-    const gid = Number(u.GroupId ?? u.group_id ?? u.user_group_id ?? u.role_id ?? u.id_group ?? 0);
-    if (gid === 8) {
-        return true; // Группа 8 = Автосервис (СТО)
-    }
-
-    // 3. По флагу сервиса или наличию привязанного ID сервиса
-    if (u.is_service === true || u.is_service === 1 || u.is_service === '1' || u.is_sto === true) {
-        return true;
-    }
-    if (Number(u.service_id ?? u.id_service ?? 0) > 0) {
-        return true;
-    }
-
-    // 4. По имени роли/группы внутри объекта пользователя
-    const groupName = String(u.group?.name || u.role?.name || u.group_name || '').toLowerCase();
-    if (groupName.includes('сервис') || groupName.includes('сто')) {
-        return true;
-    }
-
-    return false;
+    return serverIsServiceUser.value === true;
 });
 
-// Эффективный ID автосервиса дела
+// Эффективный ID сервиса
 const currentEffectiveServiceId = computed(() => {
     const sid = Number(
         props.serviceId ||
@@ -276,25 +330,41 @@ const currentEffectiveServiceId = computed(() => {
     return sid > 0 ? sid : null;
 });
 
-// Название сервиса для плашки
-const currentServiceName = computed(() => {
-    return props.application?.service?.name || props.application?.service_name || '';
+// Точное название автосервиса
+const effectiveServiceName = computed(() => {
+    return (
+        serverServiceName.value ||
+        props.application?.service?.name ||
+        props.application?.service_name ||
+        ''
+    );
 });
 
-// Слушаем смену автосервиса в деле и автоматически пересчитываем цены под новый прайс СТО
+// Автопересчёт цен при смене СТО
 watch(
-    () => currentEffectiveServiceId.value,
-    async (newSid, oldSid) => {
-        if (newSid && newSid !== oldSid) {
+    [
+        () => props.serviceId,
+        () => props.application?.id_service,
+        () => props.application?.service_id
+    ],
+    async ([newPropSid, newAppIdServ, newAppServId], [oldPropSid, oldAppIdServ, oldAppServId]) => {
+        const newSid = Number(newPropSid || newAppIdServ || newAppServId || 0);
+        const oldSid = Number(oldPropSid || oldAppIdServ || oldAppServId || 0);
+
+        if (newSid > 0 && newSid !== oldSid) {
             await syncWithService(newSid);
         }
-    }
+    },
+    { immediate: false }
 );
 
 const syncWithService = async (sid) => {
+    const targetServiceId = sid || currentEffectiveServiceId.value;
+    if (!targetServiceId) return;
+
     try {
         const res = await axios.post(`/api/applications/${props.applicationId}/plan-works/sync-service-prices`, {
-            service_id: sid,
+            service_id: targetServiceId,
         });
         if (res.data?.data) {
             works.value = res.data.data;
@@ -322,16 +392,20 @@ const fetchPlanWorks = async () => {
         const res = await axios.get(`/api/applications/${props.applicationId}/plan-works`);
         works.value = res.data.data || [];
         totalSum.value = res.data.total_sum || 0;
-        serviceApproved.value = res.data.service_approved;
-        fullyApproved.value = res.data.fully_approved;
-        canCompleteApproval.value = res.data.can_complete_approval;
+        serviceApproved.value = Boolean(res.data.service_approved);
+        fullyApproved.value = Boolean(res.data.fully_approved);
+        canCompleteApproval.value = Boolean(res.data.can_complete_approval);
         serverServiceId.value = res.data.service_id;
+        serverServiceName.value = res.data.service_name || '';
+
+        if (typeof res.data.is_service_user !== 'undefined') {
+            serverIsServiceUser.value = Boolean(res.data.is_service_user);
+        }
     } catch (e) {
         console.error('Ошибка загрузки плановых работ:', e);
     }
 };
 
-// 1. Добавление вручную
 const addManualRow = async () => {
     try {
         const res = await axios.post(`/api/applications/${props.applicationId}/plan-works`, {
@@ -348,7 +422,6 @@ const addManualRow = async () => {
     }
 };
 
-// 2. Открытие справочника
 const openDirectoryModal = async () => {
     showDirectoryModal.value = true;
     try {
@@ -363,12 +436,11 @@ const openDirectoryModal = async () => {
     }
 };
 
-// 3. Выбор работы из справочника
 const selectFromDirectory = async (item) => {
     try {
         const price = item.final_price ?? item.service_price ?? item.base_price ?? 0;
         const res = await axios.post(`/api/applications/${props.applicationId}/plan-works`, {
-            standard_work_id: item.id,
+            standard_work_id: item.id, // <-- КЛЮЧЕВОЙ ПАРАМЕТР
             name: item.name,
             price: price,
         });
@@ -406,22 +478,11 @@ const saveField = async (work, field, rawValue) => {
     }
 };
 
-// Проверка: нужно ли МРК проверять строку
 const canReviewRow = (work) => {
-    // Жесткий запрет сервису
-    if (isServiceUser.value) {
-        return false;
-    }
-
-    // Доступно только для строк, требующих проверки или созданных сервисом (author_type === 4)
-    const st = work.approval_status ?? work.status ?? '';
-    const isServiceAuthor = Number(work.author_type) === 4;
-
-    return isServiceAuthor || st === 'pending';
+    if (isServiceUser.value) return false;
+    return Number(work.author_type) === 4 || work.approval_status === 'pending';
 };
 
-// МРК нажимает Принять / Отклонить конкретную строку
-// МРК нажимает Принять / Отклонить конкретную строку
 const setRowApproval = async (work, status) => {
     try {
         const res = await axios.put(`/api/applications/${props.applicationId}/plan-works/${work.id}/row-approval`, {
@@ -429,19 +490,16 @@ const setRowApproval = async (work, status) => {
         });
         if (res.data?.data) {
             work.approval_status = res.data.data.approval_status;
-            work.status = res.data.data.status ?? res.data.data.approval_status;
         } else {
             work.approval_status = status;
-            work.status = status;
         }
-        recalcTotal();
+        fetchPlanWorks();
         emit('updated');
     } catch (e) {
         console.error('Ошибка смены статуса строки:', e);
     }
 };
 
-// Сервис нажимает "Согласовать с МРК"
 const submitServiceApproval = async () => {
     if (!confirm('Отправить все плановые работы на согласование МРК?')) return;
     try {
@@ -454,7 +512,6 @@ const submitServiceApproval = async () => {
     }
 };
 
-// МРК нажимает "Согласование завершено"
 const completeApproval = async () => {
     if (!confirm('Завершить согласование плановых работ по делу?')) return;
     try {
@@ -478,20 +535,26 @@ const deleteWork = async (work) => {
     }
 };
 
-// Пересчет суммы строго из принятых (approved) позиций
 const recalcTotal = () => {
-    totalSum.value = works.value
-        .filter((w) => {
-            const st = w.approval_status ?? w.status;
-            return st === 'approved';
-        })
-        .reduce((acc, w) => acc + (parseFloat(w.price) || 0), 0);
+    totalSum.value = works.value.reduce((acc, w) => acc + (parseFloat(w.price) || 0), 0);
 };
 
-// Определение цвета строки
+// Загрузка истории изменений
+const openHistoryModal = async () => {
+    showHistoryModal.value = true;
+    historyLoading.value = true;
+    try {
+        const res = await axios.get(`/api/applications/${props.applicationId}/plan-works/history`);
+        historyList.value = res.data.data || [];
+    } catch (err) {
+        console.error('Ошибка загрузки истории плановых работ:', err);
+    } finally {
+        historyLoading.value = false;
+    }
+};
+
 const getAuthorBgClass = (work) => {
     if (!work) return 'row-auto';
-
     const type = Number(work.author_type ?? 0);
     const role = String(work.author_role ?? '').toLowerCase();
 
@@ -518,6 +581,29 @@ const translateApproval = (st) => {
         case 'rejected': return 'Отклонено';
         default: return 'На проверке';
     }
+};
+
+const translateHistoryField = (field) => {
+    const map = {
+        name: 'Наименование',
+        price: 'Цена',
+        approval_status: 'Статус согласования',
+        согласование: 'Согласование',
+        позиция: 'Позиция',
+        created: 'Добавление',
+        deleted: 'Удаление',
+        updated: 'Изменение',
+        status_change: 'Решение МРК',
+        service_submitted: 'Отправка СТО',
+        approval_completed: 'Завершение',
+    };
+    return map[field] || field;
+};
+
+const formatDateTime = (val) => {
+    if (!val) return '—';
+    const d = new Date(val);
+    return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 };
 
 const formatMoney = (val) => {
@@ -606,24 +692,23 @@ onMounted(fetchPlanWorks);
     align-items: center;
     justify-content: center;
     z-index: 1090;
+    backdrop-filter: blur(2px);
 }
 
 .modal-dialog-custom {
     background: #ffffff;
     border-radius: 8px;
     width: 90%;
+    overflow: hidden;
 }
 
-/* ЦВЕТА СТРОК АВТОРОВ (перебивают любые стили td) */
-
-/* 0. Автоматически / по умолчанию — БЕЛЫЙ */
+/* ЦВЕТА СТРОК АВТОРОВ */
 :deep(.table-mandarin tbody tr.row-auto td),
 .table-mandarin tbody tr.row-auto td {
     background-color: #ffffff !important;
     color: #1e293b;
 }
 
-/* 1. МРК ДЕЛА — ПАСТЕЛЬНО-СИНИЙ / ГОЛУБОЙ (#e0f2fe) */
 :deep(.table-mandarin tbody tr.row-mrk td),
 .table-mandarin tbody tr.row-mrk td {
     background-color: #e0f2fe !important;
@@ -635,7 +720,6 @@ onMounted(fetchPlanWorks);
     background-color: #bae6fd !important;
 }
 
-/* 2. НАСТАВНИК ДЕЛА — СИРЕНЕВЫЙ / ЛАВАНДОВЫЙ (#f3e8ff) */
 :deep(.table-mandarin tbody tr.row-mentor td),
 .table-mandarin tbody tr.row-mentor td {
     background-color: #f3e8ff !important;
@@ -647,14 +731,12 @@ onMounted(fetchPlanWorks);
     background-color: #e9d5ff !important;
 }
 
-/* 3. ЗАПЧАСТИСТ — ЗЕЛЕНЫЙ (#dcfce7) */
 :deep(.table-mandarin tbody tr.row-spm td),
 .table-mandarin tbody tr.row-spm td {
     background-color: #dcfce7 !important;
     color: #14532d !important;
 }
 
-/* 4. СЕРВИС / СТО — ПАСТЕЛЬНО-ЖЕЛТЫЙ (#fef9c3) */
 :deep(.table-mandarin tbody tr.row-service td),
 .table-mandarin tbody tr.row-service td {
     background-color: #fef9c3 !important;
@@ -666,14 +748,12 @@ onMounted(fetchPlanWorks);
     background-color: #fef08a !important;
 }
 
-/* 5. ДРУГОЙ ПОЛЬЗОВАТЕЛЬ — ПЕСОЧНО-КОРИЧНЕВЫЙ (#fed7aa) */
 :deep(.table-mandarin tbody tr.row-other td),
 .table-mandarin tbody tr.row-other td {
     background-color: #fed7aa !important;
     color: #7c2d12 !important;
 }
 
-/* Отклоненные строки сервиса */
 :deep(.table-mandarin tbody tr.row-rejected td),
 .table-mandarin tbody tr.row-rejected td {
     background-color: #fee2e2 !important;

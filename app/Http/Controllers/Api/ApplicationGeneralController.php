@@ -153,6 +153,7 @@ class ApplicationGeneralController extends Controller
             'our_company_id' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'id_city' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'id_service' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'service_id' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'view_date' => ['sometimes', 'nullable'],
             'start_date' => ['sometimes', 'nullable', 'date'],
             'sp_date' => ['sometimes', 'nullable', 'date'],
@@ -182,6 +183,16 @@ class ApplicationGeneralController extends Controller
             $data['our_company_id'] = $bId ? (int) $bId : null;
         }
 
+        // Фиксируем старый и новый сервис для проверки смены СТО
+        $oldServiceId = (int) ($application->id_service ?? $application->service_id ?? 0);
+        $newServiceId = null;
+        if (array_key_exists('id_service', $data) || array_key_exists('service_id', $data)) {
+            $sId = $data['id_service'] ?? $data['service_id'] ?? null;
+            $newServiceId = $sId ? (int) $sId : null;
+            $data['id_service'] = $newServiceId;
+            $data['service_id'] = $newServiceId;
+        }
+
         $columns = Schema::getColumnListing($application->getTable());
 
         // Расчет даты окончания ремонта
@@ -194,11 +205,16 @@ class ApplicationGeneralController extends Controller
         // Фильтруем данные строго по существующим колонкам в таблице applications
         $saveData = array_intersect_key($data, array_flip($columns));
 
-        DB::transaction(function () use ($application, $saveData): void {
+        DB::transaction(function () use ($application, $saveData, $oldServiceId, $newServiceId, $id): void {
             if (isset($saveData['view_date'])) {
                 Log::info('Saving view_date:', ['value' => $saveData['view_date']]);
             }
             $application->forceFill($saveData)->save();
+
+            // Если СТО сменился (или был назначен впервые) — запускаем пересчет цен плановых работ
+            if ($newServiceId !== null && $newServiceId !== $oldServiceId && $newServiceId > 0) {
+                $this->recalculatePlanWorksForService($id, $newServiceId);
+            }
         });
 
         return response()->json([
@@ -206,6 +222,89 @@ class ApplicationGeneralController extends Controller
             'saved_fields' => array_keys($saveData),
             'data' => $this->normalizeForResponse($application->fresh()),
         ]);
+    }
+
+    /**
+     * Пересчет цен плановых работ под индивидуальный прайс выбранного автосервиса
+     */
+    protected function recalculatePlanWorksForService(int $applicationId, int $serviceId): void
+    {
+        try {
+            if (!Schema::hasTable('plan_works') || !Schema::hasTable('service_work_prices')) {
+                return;
+            }
+
+            $appCol = Schema::hasColumn('plan_works', 'application_id') ? 'application_id' : 'id_application';
+            $serviceCol = Schema::hasColumn('service_work_prices', 'service_id') ? 'service_id' : 'our_company_id';
+
+            $works = DB::table('plan_works')
+                ->where($appCol, $applicationId)
+                ->get();
+
+            foreach ($works as $work) {
+                // Если менеджер вручную зафиксировал цену в смете, не перезаписываем её
+                if (isset($work->is_custom_price) && (bool) $work->is_custom_price) {
+                    continue;
+                }
+
+                $standardWorkId = (int) ($work->standard_work_id ?? 0);
+
+                // Если при создании standard_work_id не был проставлен, пробуем сопоставить по названию
+                if ($standardWorkId <= 0 && Schema::hasTable('standard_works')) {
+                    $matched = DB::table('standard_works')
+                        ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(trim($work->name))])
+                        ->first();
+                    if ($matched) {
+                        $standardWorkId = (int) $matched->id;
+                        DB::table('plan_works')->where('id', $work->id)->update([
+                            'standard_work_id' => $standardWorkId
+                        ]);
+                    }
+                }
+
+                if ($standardWorkId <= 0) {
+                    continue;
+                }
+
+                // 1. Проверяем индивидуальную цену для нового автосервиса
+                $price = DB::table('service_work_prices')
+                    ->where('standard_work_id', $standardWorkId)
+                    ->where($serviceCol, $serviceId)
+                    ->value('price');
+
+                // 2. Если у автосервиса нет своей цены — берем базовую цену из типового справочника
+                if ($price === null && Schema::hasTable('standard_works')) {
+                    $price = DB::table('standard_works')
+                        ->where('id', $standardWorkId)
+                        ->value('base_price');
+                }
+
+                if ($price !== null && abs((float) $work->price - (float) $price) > 0.01) {
+                    $oldPrice = $work->price;
+                    DB::table('plan_works')->where('id', $work->id)->update([
+                        'price' => (float) $price,
+                        'updated_at' => now(),
+                    ]);
+
+                    // Если есть таблица аудита/истории плановых работ — фиксируем изменение
+                    if (Schema::hasTable('plan_work_histories')) {
+                        DB::table('plan_work_histories')->insert([
+                            'application_id' => $applicationId,
+                            'plan_work_id' => $work->id,
+                            'user_id' => auth()->id(),
+                            'action_type' => 'service_sync',
+                            'field_name' => 'price',
+                            'old_value' => (string) $oldPrice,
+                            'new_value' => (string) $price,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Ошибка автоматического пересчета плановых работ при смене СТО: ' . $e->getMessage());
+        }
     }
 
     public function options(Request $request): JsonResponse

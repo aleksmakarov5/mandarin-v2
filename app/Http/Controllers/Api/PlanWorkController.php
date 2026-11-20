@@ -4,246 +4,340 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Application;
+use App\Models\PlanWork;
+use App\Models\PlanWorkHistory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Log;
-use App\Models\PlanWork;
 
 class PlanWorkController extends Controller
 {
+    /**
+     * Определение колонки привязки к делу (application_id vs id_application)
+     */
     protected function getAppIdColumn(): string
     {
-        return Schema::hasColumn('plan_works', 'application_id') ? 'application_id' : 'id_application';
+        if (Schema::hasColumn('plan_works', 'application_id')) {
+            return 'application_id';
+        }
+        if (Schema::hasColumn('plan_works', 'id_application')) {
+            return 'id_application';
+        }
+        return 'application_id';
     }
 
     /**
-     * Определение роли / автора для раскраски:
-     * 1 - МРК (пастельно-синий)
-     * 2 - Наставник (сиреневый)
-     * 3 - Запчастист (зеленый)
-     * 4 - Сервис / СТО (желтый)
-     * 5 - Другой пользователь (коричневый)
+     * Определение роли автора:
+     * 1 - МРК
+     * 2 - Наставник
+     * 3 - СПМ
+     * 4 - Сервис / СТО
+     * 5 - Другой
      */
-    private function resolveAuthorType($user, Application $app): int
+    protected function resolveAuthorType($user, $app): int
     {
         if (!$user) {
-            return 5;
+            return 0;
         }
 
-        // Проверяем, является ли пользователь сервисом:
-        // - флаг isSto()
-        // - group_id == 8 или role_id == 8
-        // - наличие service_id / id_service
-        // - совпадение с id_service текущего дела
-        $isStoUser = (method_exists($user, 'isSto') && $user->isSto())
-            || (int) ($user->GroupId ?? $user->group_id ?? $user->role_id ?? 0) === 8
-            || !empty($user->id_service)
-            || !empty($user->service_id);
-
-        if ($isStoUser) {
-            return 4; // СЕРВИС
+        // Проверка через метод модели User
+        if (method_exists($user, 'isSto') && $user->isSto()) {
+            return 4;
         }
 
-        $userId = (int) $user->id;
+        $uid = (int) $user->id;
+        $gid = (int) ($user->GroupId ?? $user->user_group_id ?? 0);
 
-        // Наставник дела
-        if (!empty($app->id_mentor) && (int) $app->id_mentor === $userId) {
-            return 2;
+        if ($app) {
+            $mrkId = (int) ($app->id_MRK ?? $app->id_user ?? $app->mrk_id ?? 0);
+            $mentorId = (int) ($app->id_mentor ?? $app->mentor_id ?? 0);
+
+            if ($mrkId > 0 && $uid === $mrkId) {
+                return 1;
+            }
+            if ($mentorId > 0 && $uid === $mentorId) {
+                return 2;
+            }
         }
 
-        // МРК дела (или куратор)
-        if (!empty($app->id_MRK) && (int) $app->id_MRK === $userId) {
+        // Если пользователь СТО по группам или сервисной привязке
+        if ($gid === 7 || $gid === 8 || ($user->is_service ?? false) || !empty($user->id_service) || !empty($user->service_id)) {
+            return 4;
+        }
+
+        if ($gid === 5)
             return 1;
-        }
-
-        // СПМ дела
-        if (!empty($app->id_spm) && (int) $app->id_spm === $userId) {
-            return 3;
-        }
-
-        // Если пользователь имеет роль МРК (group 5)
-        $groupId = (int) ($user->GroupId ?? $user->group_id ?? $user->role_id ?? 0);
-        if ($groupId === 5) {
-            return 1;
-        }
-        if ($groupId === 6) {
+        if ($gid === 6 || $gid === 10)
             return 2;
-        }
-        if ($groupId === 9) {
+        if ($gid === 9)
             return 3;
-        }
 
-        return 5; // Другой сотрудник
+        return 5;
     }
 
-    public function index(int $applicationId): JsonResponse
+    /**
+     * Получение точного названия автосервиса СТРОГО из таблицы services
+     */
+    protected function resolveServiceName(?int $serviceId, $app): string
     {
+        if (!$serviceId || $serviceId <= 0) {
+            return '';
+        }
+
         try {
-            $app = Application::find($applicationId);
+            if (Schema::hasTable('services')) {
+                $serv = DB::table('services')->where('id', $serviceId)->first();
+                if ($serv) {
+                    return (string) ($serv->name ?? $serv->title ?? $serv->short_name ?? '');
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('resolveServiceName error: ' . $e->getMessage());
+        }
+
+        if ($app && !empty($app->service_name)) {
+            return (string) $app->service_name;
+        }
+
+        return '';
+    }
+
+    /**
+     * Выдача списка плановых работ
+     */
+    public function index(Request $request, $applicationId): JsonResponse
+    {
+        $appId = (int) $applicationId;
+        if ($appId <= 0) {
+            return response()->json([
+                'data' => [],
+                'total_sum' => 0,
+                'service_approved' => false,
+                'fully_approved' => false,
+                'can_complete_approval' => false,
+                'service_id' => null,
+                'service_name' => '',
+                'is_service_user' => false,
+            ]);
+        }
+
+        try {
+            $app = Application::find($appId);
             $appCol = $this->getAppIdColumn();
 
-            $works = DB::table('plan_works')
-                ->where($appCol, $applicationId)
-                ->orderBy('id', 'asc')
-                ->get();
+            // Если в таблице есть обе колонки или только одна — делаем выборку надежно
+            $worksQuery = DB::table('plan_works');
+            if (Schema::hasColumn('plan_works', 'application_id') && Schema::hasColumn('plan_works', 'id_application')) {
+                $worksQuery->where(function ($q) use ($appId) {
+                    $q->where('application_id', $appId)->orWhere('id_application', $appId);
+                });
+            } else {
+                $worksQuery->where($appCol, $appId);
+            }
 
-            // Считаем сумму ТОЛЬКО из принятых позиций (approved)
-            $totalSum = (float) $works->filter(function ($w) {
-                $status = $w->approval_status ?? $w->status ?? 'approved';
-                return $status === 'approved';
-            })->sum('price');
+            $works = $worksQuery->orderBy('id', 'asc')->get();
 
-            $allProcessed = $works->count() > 0 && $works->every(function ($w) {
+            // Нормализация полей для фронтенда
+            $normalizedWorks = $works->map(function ($w) {
                 $status = $w->approval_status ?? $w->status ?? 'approved';
-                return in_array($status, ['approved', 'rejected'], true);
+                $w->approval_status = $status;
+                $w->status = $status;
+                $w->author_type = (int) ($w->author_type ?? 1);
+                $w->price = (float) ($w->price ?? 0);
+                return $w;
             });
 
-            $serviceId = (int) ($app->id_service ?? $app->service_id ?? 0);
+            // Итоговая сумма по одобренным работам
+            $totalSum = (float) $normalizedWorks->filter(function ($w) {
+                return ($w->approval_status ?? $w->status) === 'approved';
+            })->sum('price');
 
-            return response()->json([
-                'data' => $works,
-                'total_sum' => $totalSum,
-                'service_approved' => (bool) ($app->plan_works_approved_by_service ?? false),
-                'fully_approved' => (bool) ($app->plan_works_fully_approved ?? false),
-                'can_complete_approval' => (bool) (($app->plan_works_approved_by_service ?? false) && $allProcessed),
-                'service_id' => $serviceId > 0 ? $serviceId : null,
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('PlanWorkController@index error: ' . $e->getMessage());
-            return response()->json(['data' => [], 'total_sum' => 0, 'service_id' => null]);
-        }
-    }
-
-    public function store(Request $request, int $applicationId): JsonResponse
-    {
-        try {
-            $user = Auth::user();
-            $app = Application::find($applicationId);
-            $appCol = $this->getAppIdColumn();
-
-            $name = trim($request->input('name', 'Новая работа'));
-            $price = (float) $request->input('price', 0);
-            $standardWorkId = $request->input('standard_work_id') ? (int) $request->input('standard_work_id') : null;
-
-            // Если передана типовая работа и цена 0, подтягиваем из прайса сервиса
-            if ($standardWorkId && $price <= 0) {
+            // Определение сервиса СТРОГО из services
+            $serviceId = null;
+            $serviceName = '';
+            if ($app) {
                 $serviceId = (int) ($app->id_service ?? $app->service_id ?? 0);
-                $serviceCol = Schema::hasColumn('service_work_prices', 'service_id') ? 'service_id' : 'our_company_id';
-
-                if ($serviceId > 0 && Schema::hasTable('service_work_prices')) {
-                    $sPrice = DB::table('service_work_prices')
-                        ->where('standard_work_id', $standardWorkId)
-                        ->where($serviceCol, $serviceId)
-                        ->value('price');
-                    if ($sPrice !== null) {
-                        $price = (float) $sPrice;
-                    }
-                }
-
-                if ($price <= 0 && Schema::hasTable('standard_works')) {
-                    $sw = DB::table('standard_works')->where('id', $standardWorkId)->first();
-                    if ($sw) {
-                        $price = (float) ($sw->base_price ?? $sw->price ?? 0);
-                    }
+                if ($serviceId > 0) {
+                    $serviceName = $this->resolveServiceName($serviceId, $app);
                 }
             }
 
-            $authorType = $this->resolveAuthorType($user, $app);
+            $serviceApproved = (bool) ($app->plan_works_approved_by_service ?? false);
+            $fullyApproved = (bool) ($app->plan_works_fully_approved ?? false);
+
+            $hasPendingRows = $normalizedWorks->contains(fn($w) => ($w->approval_status ?? $w->status) === 'pending');
+            $hasServiceRows = $normalizedWorks->contains(fn($w) => (int) ($w->author_type ?? 0) === 4 || ($w->author_role ?? '') === 'service');
+
+            // Кнопка доступна, если сервис отправил запрос ИЛИ есть строки сервиса, нет зависших pending и согласование еще не финализировано
+            $canCompleteApproval = false;
+            if (!$fullyApproved && $normalizedWorks->isNotEmpty()) {
+                if ($serviceApproved && !$hasPendingRows) {
+                    $canCompleteApproval = true;
+                } elseif ($hasServiceRows && !$hasPendingRows) {
+                    $canCompleteApproval = true;
+                }
+            }
+
+            $user = Auth::user();
+            $isServiceUser = false;
+            if ($user) {
+                if (method_exists($user, 'isSto')) {
+                    $isServiceUser = (bool) $user->isSto();
+                } else {
+                    $gid = (int) ($user->GroupId ?? $user->user_group_id ?? 0);
+                    $isServiceUser = ($gid === 7 || $gid === 8 || ($user->is_service ?? false));
+                }
+            }
+
+            return response()->json([
+                'data' => $normalizedWorks,
+                'total_sum' => $totalSum,
+                'service_approved' => $serviceApproved,
+                'fully_approved' => $fullyApproved,
+                'can_complete_approval' => $canCompleteApproval,
+                'service_id' => $serviceId > 0 ? $serviceId : null,
+                'service_name' => $serviceName,
+                'is_service_user' => $isServiceUser,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('PlanWorkController@index error: ' . $e->getMessage());
+            return response()->json([
+                'data' => [],
+                'total_sum' => 0,
+                'service_id' => null,
+                'service_name' => '',
+                'is_service_user' => false,
+                'error' => $e->getMessage()
+            ], 200);
+        }
+    }
+
+    /**
+     * Добавление новой работы
+     */
+    public function store(Request $request, $applicationId): JsonResponse
+    {
+        try {
+            $appId = (int) $applicationId;
+            $app = Application::findOrFail($appId);
+            $user = Auth::user();
+
+            $isService = $user && method_exists($user, 'isSto') && $user->isSto();
+            $authorType = $isService ? 4 : $this->resolveAuthorType($user, $app);
+
+            $name = trim($request->input('name', 'Новая плановая работа'));
+            $price = (float) $request->input('price', 0);
+            $standardWorkId = $request->input('standard_work_id') ? (int) $request->input('standard_work_id') : null;
+
+            $appCol = $this->getAppIdColumn();
+            $cols = Schema::getColumnListing('plan_works');
+
             $initialStatus = ($authorType === 4) ? 'pending' : 'approved';
 
-            // Получаем реальные колонки таблицы из БД
-            $existingColumns = Schema::getColumnListing('plan_works');
-
-            // Возможные данные для вставки
-            $potentialData = [
-                $appCol => $applicationId,
+            $data = [
+                $appCol => $appId,
                 'name' => $name,
                 'price' => $price,
-                'standard_work_id' => $standardWorkId,
-                'author_type' => $authorType,
-                'author_role' => ($authorType === 4) ? 'service' : 'mrk',
-                'approval_status' => $initialStatus,
-                'status' => $initialStatus,
-                'is_custom_price' => false,
-                'user_id' => $user?->id,
-                'id_user' => $user?->id,
-                'created_by_user_id' => $user?->id,
-                'updated_by_user_id' => $user?->id,
-                'created_at' => now(),
-                'updated_at' => now(),
             ];
 
-            // Оставляем ТОЛЬКО те поля, которые физически есть в таблице plan_works
-            $insert = array_intersect_key($potentialData, array_flip($existingColumns));
+            if (in_array('standard_work_id', $cols, true))
+                $data['standard_work_id'] = $standardWorkId;
+            if (in_array('author_type', $cols, true))
+                $data['author_type'] = $authorType;
+            if (in_array('author_role', $cols, true))
+                $data['author_role'] = ($authorType === 4 ? 'service' : ($authorType === 2 ? 'mentor' : 'mrk'));
+            if (in_array('approval_status', $cols, true))
+                $data['approval_status'] = $initialStatus;
+            if (in_array('status', $cols, true))
+                $data['status'] = $initialStatus;
+            if (in_array('created_by_user_id', $cols, true))
+                $data['created_by_user_id'] = $user?->id;
+            if (in_array('user_id', $cols, true))
+                $data['user_id'] = $user?->id;
+            if (in_array('created_at', $cols, true))
+                $data['created_at'] = now();
+            if (in_array('updated_at', $cols, true))
+                $data['updated_at'] = now();
 
-            $id = DB::table('plan_works')->insertGetId($insert);
-            $newWork = DB::table('plan_works')->where('id', $id)->first();
+            $newId = DB::table('plan_works')->insertGetId($data);
+            $work = DB::table('plan_works')->where('id', $newId)->first();
 
-            return response()->json(['data' => $newWork], 201);
+            // Логируем в историю
+            $this->logHistory($appId, $newId, 'created', 'позиция', null, "{$name} ({$price} ₽)");
+
+            return response()->json([
+                'status' => 'ok',
+                'data' => $work,
+            ], 201);
         } catch (\Throwable $e) {
             Log::error('PlanWorkController@store error: ' . $e->getMessage());
             return response()->json(['message' => 'Ошибка создания работы: ' . $e->getMessage()], 500);
         }
     }
 
-    public function updateField(Request $request, int $applicationId, int $id): JsonResponse
+    /**
+     * Изменение поля ячейки (name или price)
+     */
+    public function updateField(Request $request, $applicationId, $workId): JsonResponse
     {
         try {
+            $appId = (int) $applicationId;
+            $wId = (int) $workId;
             $appCol = $this->getAppIdColumn();
+
+            $work = DB::table('plan_works')->where('id', $wId)->first();
+            if (!$work) {
+                return response()->json(['message' => 'Работа не найдена'], 404);
+            }
+
             $field = $request->input('field');
             $value = $request->input('value');
+            $oldValue = $work->{$field} ?? null;
 
             if ($field === 'price') {
                 $value = (float) str_replace([' ', ','], ['', '.'], (string) $value);
             }
 
-            $user = Auth::user();
-            $app = Application::find($applicationId);
+            if ((string) $oldValue === (string) $value) {
+                return response()->json(['data' => $work]);
+            }
+
             $cols = Schema::getColumnListing('plan_works');
+            $update = [
+                $field => $value,
+                'updated_at' => now(),
+            ];
 
-            $update = [$field => $value];
-            $authorType = $this->resolveAuthorType($user, $app);
-
-            if (in_array('author_type', $cols, true)) {
-                $update['author_type'] = $authorType;
-            }
-            if (in_array('user_id', $cols, true)) {
-                $update['user_id'] = $user?->id;
-            }
-            if (in_array('id_user', $cols, true)) {
-                $update['id_user'] = $user?->id;
-            }
-            if (in_array('updated_by_user_id', $cols, true)) {
-                $update['updated_by_user_id'] = $user?->id;
-            }
             if ($field === 'price' && in_array('is_custom_price', $cols, true)) {
                 $update['is_custom_price'] = true;
             }
 
-            // Если редактирует сервис — возвращаем статус на согласование
+            $user = Auth::user();
+            $app = Application::find($appId);
+            $authorType = $this->resolveAuthorType($user, $app);
+
+            if (in_array('author_type', $cols, true))
+                $update['author_type'] = $authorType;
+            if (in_array('updated_by_user_id', $cols, true))
+                $update['updated_by_user_id'] = $user?->id;
+
+            // Если СТО меняет стоимость или название — статус строки возвращается на согласование (pending)
             if ($authorType === 4) {
-                if (in_array('approval_status', $cols, true)) {
+                if (in_array('approval_status', $cols, true))
                     $update['approval_status'] = 'pending';
-                }
-                if (in_array('status', $cols, true)) {
+                if (in_array('status', $cols, true))
                     $update['status'] = 'pending';
-                }
             }
 
-            if (in_array('updated_at', $cols, true)) {
-                $update['updated_at'] = now();
-            }
+            DB::table('plan_works')->where('id', $wId)->update($update);
+            $updatedWork = DB::table('plan_works')->where('id', $wId)->first();
 
-            DB::table('plan_works')
-                ->where($appCol, $applicationId)
-                ->where('id', $id)
-                ->update($update);
+            $this->logHistory($appId, $wId, 'updated', $field, (string) $oldValue, (string) $value);
 
-            $work = DB::table('plan_works')->where('id', $id)->first();
-            return response()->json(['data' => $work]);
+            return response()->json(['data' => $updatedWork]);
         } catch (\Throwable $e) {
             Log::error('PlanWorkController@updateField error: ' . $e->getMessage());
             return response()->json(['message' => $e->getMessage()], 500);
@@ -251,152 +345,180 @@ class PlanWorkController extends Controller
     }
 
     /**
-     * Пересчет цен всех плановых работ при смене сервиса в деле
+     * МРК/Наставник меняет статус строки: Принять / Отклонить
+     * (Единый метод, закрывающий и setRowApproval, и changeRowApproval)
      */
-    public function syncPricesWithService(Request $request, int $applicationId): JsonResponse
+    public function setRowApproval(Request $request, $applicationId, $workId): JsonResponse
     {
-        try {
-            $app = Application::find($applicationId);
-            $serviceId = (int) ($request->input('service_id') ?? $app->id_service ?? $app->service_id ?? 0);
-
-            if ($serviceId <= 0 || !Schema::hasTable('service_work_prices')) {
-                return response()->json(['status' => 'no_service', 'updated_count' => 0]);
-            }
-
-            $appCol = $this->getAppIdColumn();
-            $serviceCol = Schema::hasColumn('service_work_prices', 'service_id') ? 'service_id' : 'our_company_id';
-
-            // Находим строки из справочника, цены которых не фиксировались вручную
-            $works = DB::table('plan_works')
-                ->where($appCol, $applicationId)
-                ->whereNotNull('standard_work_id')
-                ->where('standard_work_id', '>', 0)
-                ->get();
-
-            $updatedCount = 0;
-            foreach ($works as $w) {
-                // Если стоит флаг ручной цены — пропускаем
-                if (isset($w->is_custom_price) && $w->is_custom_price) {
-                    continue;
-                }
-
-                $sPrice = DB::table('service_work_prices')
-                    ->where('standard_work_id', $w->standard_work_id)
-                    ->where($serviceCol, $serviceId)
-                    ->value('price');
-
-                if ($sPrice !== null && (float) $w->price !== (float) $sPrice) {
-                    DB::table('plan_works')
-                        ->where('id', $w->id)
-                        ->update(['price' => (float) $sPrice, 'updated_at' => now()]);
-                    $updatedCount++;
-                }
-            }
-
-            $freshWorks = DB::table('plan_works')->where($appCol, $applicationId)->orderBy('id', 'asc')->get();
-
-            return response()->json([
-                'status' => 'ok',
-                'updated_count' => $updatedCount,
-                'data' => $freshWorks,
-                'total_sum' => (float) $freshWorks->sum('price'),
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('syncPricesWithService error: ' . $e->getMessage());
-            return response()->json(['message' => $e->getMessage()], 500);
-        }
+        return $this->changeRowApproval($request, $applicationId, $workId);
     }
 
-    /**
-     * Изменение статуса согласования конкретной строки (МРК нажимает Принять / Отклонить)
-     */
-    public function setRowApproval(Request $request, int $applicationId, int $id): JsonResponse
+    public function changeRowApproval(Request $request, $applicationId, $workId): JsonResponse
     {
         try {
+            $user = Auth::user();
+            if ($user && method_exists($user, 'isSto') && $user->isSto()) {
+                return response()->json(['message' => 'Автосервису недоступно согласование позиций'], 403);
+            }
+
+            $appId = (int) $applicationId;
+            $wId = (int) $workId;
             $status = $request->input('status'); // 'approved' или 'rejected'
-            $appCol = $this->getAppIdColumn();
+
+            $work = DB::table('plan_works')->where('id', $wId)->first();
+            if (!$work) {
+                return response()->json(['message' => 'Позиция не найдена'], 404);
+            }
+
+            $oldStatus = $work->approval_status ?? $work->status ?? 'pending';
             $cols = Schema::getColumnListing('plan_works');
 
-            $update = [];
-            if (in_array('approval_status', $cols, true)) {
+            $update = ['updated_at' => now()];
+            if (in_array('approval_status', $cols, true))
                 $update['approval_status'] = $status;
-            }
-            if (in_array('status', $cols, true)) {
+            if (in_array('status', $cols, true))
                 $update['status'] = $status;
-            }
-            if (in_array('updated_at', $cols, true)) {
-                $update['updated_at'] = now();
-            }
+
+            DB::table('plan_works')->where('id', $wId)->update($update);
+            $updatedWork = DB::table('plan_works')->where('id', $wId)->first();
+
+            $this->logHistory(
+                $appId,
+                $wId,
+                'status_change',
+                'согласование',
+                $oldStatus === 'approved' ? 'Принято' : ($oldStatus === 'rejected' ? 'Отклонено' : 'На проверке'),
+                $status === 'approved' ? 'Принято' : 'Отклонено'
+            );
+
+            return response()->json(['data' => $updatedWork]);
+        } catch (\Throwable $e) {
+            Log::error('changeRowApproval error: ' . $e->getMessage());
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Сервис нажимает "Согласовать"
+     */
+    public function submitServiceApproval($applicationId): JsonResponse
+    {
+        try {
+            $appId = (int) $applicationId;
+            $app = Application::findOrFail($appId);
+            $appCol = $this->getAppIdColumn();
+
+            $app->plan_works_approved_by_service = true;
+            $app->save();
+
+            $cols = Schema::getColumnListing('plan_works');
+            $update = ['updated_at' => now()];
+            if (in_array('approval_status', $cols, true))
+                $update['approval_status'] = 'pending';
+            if (in_array('status', $cols, true))
+                $update['status'] = 'pending';
 
             DB::table('plan_works')
-                ->where($appCol, $applicationId)
-                ->where('id', $id)
+                ->where($appCol, $appId)
+                ->where(function ($q) {
+                    $q->where('author_type', 4)->orWhere('author_role', 'service');
+                })
                 ->update($update);
 
-            $work = DB::table('plan_works')->where('id', $id)->first();
-            return response()->json(['data' => $work]);
-        } catch (\Throwable $e) {
-            Log::error('setRowApproval error: ' . $e->getMessage());
-            return response()->json(['message' => $e->getMessage()], 500);
-        }
-    }
+            $this->logHistory($appId, null, 'service_submitted', 'согласование', null, 'Сервис отправил работы на согласование');
 
-    /**
-     * Сервис нажимает кнопку "Согласовать с МРК"
-     */
-    public function submitServiceApproval(int $applicationId): JsonResponse
-    {
-        try {
-            $app = Application::find($applicationId);
-            if ($app) {
-                $app->plan_works_approved_by_service = true;
-                $app->save();
-            }
-
-            $appCol = $this->getAppIdColumn();
-            DB::table('plan_works')
-                ->where($appCol, $applicationId)
-                ->where('author_type', 4)
-                ->where('approval_status', 'approved') // переводим сервис в pending
-                ->update(['approval_status' => 'pending', 'updated_at' => now()]);
-
-            return response()->json(['status' => 'ok']);
+            return response()->json(['status' => 'ok', 'message' => 'Работы переданы на согласование МРК']);
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 500);
         }
     }
 
     /**
-     * МРК нажимает кнопку "Согласование завершено"
+     * МРК завершает согласование
      */
-    public function completeApproval(int $applicationId): JsonResponse
+    public function completeApproval($applicationId): JsonResponse
     {
         try {
-            $app = Application::find($applicationId);
-            if ($app) {
-                $app->plan_works_fully_approved = true;
-                $app->save();
+            $appId = (int) $applicationId;
+            $app = Application::findOrFail($appId);
+            $app->plan_works_fully_approved = true;
+            $app->save();
+
+            $this->logHistory($appId, null, 'approval_completed', 'согласование', null, 'МРК завершил согласование плановых работ');
+
+            return response()->json(['status' => 'ok', 'message' => 'Согласование плановых работ полностью завершено']);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Удаление работы
+     */
+    public function destroy($applicationId, $workId): JsonResponse
+    {
+        try {
+            $appId = (int) $applicationId;
+            $wId = (int) $workId;
+
+            $work = DB::table('plan_works')->where('id', $wId)->first();
+            if ($work) {
+                $workName = $work->name;
+                $workPrice = $work->price;
+                DB::table('plan_works')->where('id', $wId)->delete();
+                $this->logHistory($appId, $wId, 'deleted', 'позиция', "{$workName} ({$workPrice} ₽)", null);
             }
+
             return response()->json(['status' => 'ok']);
         } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 500);
         }
     }
 
-    public function destroy(int $applicationId, int $id): JsonResponse
+    /**
+     * История изменений
+     */
+    public function history($applicationId): JsonResponse
+    {
+        $appId = (int) $applicationId;
+
+        try {
+            if (!Schema::hasTable('plan_work_histories')) {
+                return response()->json(['data' => []]);
+            }
+
+            $history = PlanWorkHistory::with('user:id,name,last_name')
+                ->where('application_id', $appId)
+                ->orderBy('id', 'desc')
+                ->limit(150)
+                ->get();
+
+            return response()->json(['data' => $history]);
+        } catch (\Throwable $e) {
+            Log::error('PlanWorkController@history error: ' . $e->getMessage());
+            return response()->json(['data' => []]);
+        }
+    }
+
+    /**
+     * Вспомогательный метод записи истории
+     */
+    protected function logHistory(int $appId, ?int $workId, string $actionType, ?string $fieldName, ?string $oldVal, ?string $newVal): void
     {
         try {
-            $appCol = $this->getAppIdColumn();
-            DB::table('plan_works')
-                ->where($appCol, $applicationId)
-                ->where('id', $id)
-                ->delete();
-
-            return response()->json(['status' => 'ok']);
+            if (Schema::hasTable('plan_work_histories')) {
+                PlanWorkHistory::create([
+                    'application_id' => $appId,
+                    'plan_work_id' => $workId,
+                    'user_id' => Auth::id(),
+                    'action_type' => $actionType,
+                    'field_name' => $fieldName,
+                    'old_value' => $oldVal !== null ? (string) $oldVal : null,
+                    'new_value' => $newVal !== null ? (string) $newVal : null,
+                ]);
+            }
         } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 500);
+            Log::warning('logHistory error: ' . $e->getMessage());
         }
     }
-
-
 }

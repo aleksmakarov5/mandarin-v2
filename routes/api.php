@@ -196,6 +196,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/service-approval', [\App\Http\Controllers\Api\PlanWorkController::class, 'submitServiceApproval']);
         Route::post('/complete-approval', [\App\Http\Controllers\Api\PlanWorkController::class, 'completeApproval']);
         Route::post('/sync-service-prices', [\App\Http\Controllers\Api\PlanWorkController::class, 'syncPricesWithService']);
+        Route::get('/history', [\App\Http\Controllers\Api\PlanWorkController::class, 'history']);
+    });
+
+    Route::prefix('applications/{id}/fact-works')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\FactWorkController::class, 'index']);
+        Route::get('/history', [\App\Http\Controllers\Api\FactWorkController::class, 'history']);
+        Route::post('/', [\App\Http\Controllers\Api\FactWorkController::class, 'store']);
+        Route::post('/import-from-plan', [\App\Http\Controllers\Api\FactWorkController::class, 'importFromPlan']);
+        Route::put('/{workId}/field', [\App\Http\Controllers\Api\FactWorkController::class, 'updateField']);
+        Route::delete('/{workId}', [\App\Http\Controllers\Api\FactWorkController::class, 'destroy']);
     });
 
     // Эндпоинт опций справочника работ для сметы

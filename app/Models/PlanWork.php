@@ -22,4 +22,9 @@ class PlanWork extends Model
     {
         return $this->belongsTo(Application::class);
     }
+
+    public function histories(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(PlanWorkHistory::class, 'plan_work_id')->latest();
+    }
 }
