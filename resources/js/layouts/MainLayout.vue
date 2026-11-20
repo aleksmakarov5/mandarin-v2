@@ -139,7 +139,8 @@
                     </li>
 
                     <li class="nav-item">
-                        <router-link to="/books" class="nav-link" active-class="active" title="Справочники"
+                        <router-link to="/books" class="nav-link"
+                            :class="{ 'active': $route.path.startsWith('/books') }" title="Справочники"
                             @click="closeMobileSidebar">
                             <i class="bi bi-journal-bookmark-fill"></i>
                             <span class="nav-text">Справочники</span>
@@ -272,6 +273,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import MandarinLogo from '../components/MandarinLogo.vue';
+import HeaderClock from '../components/HeaderClock.vue';
 const counts = ref({
     requests: 0,
     applications: 0,

@@ -25,7 +25,6 @@ const routes = [
             { path: 'chat', name: 'chat', component: () => import('../views/Dashboard.vue') },
             { path: 'warehouse', name: 'warehouse', component: () => import('../views/Dashboard.vue') },
             { path: 'finance', name: 'finance', component: () => import('../views/Dashboard.vue') },
-            { path: 'books', name: 'books', component: () => import('../views/Dashboard.vue') },
             {
                 path: 'profile',
                 name: 'profile',
@@ -62,6 +61,48 @@ const routes = [
                 path: 'trash',
                 name: 'trash',
                 component: () => import('../views/applications/ApplicationsList.vue'),
+            },
+            // Внутри children у MainLayout:
+            {
+                path: 'books',
+                component: () => import('../views/books/BooksDashboard.vue'),
+                children: [
+                    {
+                        path: '',
+                        name: 'books',
+                        redirect: { name: 'books.phones' }, // <--- открывать первым
+                    },
+                    {
+                        path: 'phones',
+                        name: 'books.phones',
+                        component: () => import('../views/books/tabs/PhoneBook.vue'),
+                        meta: { title: 'Телефонный справочник' }
+                    },
+                    {
+                        path: 'standard-works',
+                        name: 'books.standard-works',
+                        component: () => import('../views/books/tabs/StandardWorksBook.vue'),
+                        meta: { title: 'Типовые работы' }
+                    },
+                    {
+                        path: 'legal-entities',
+                        name: 'books.legal-entities',
+                        component: () => import('../views/books/tabs/LegalEntitiesBook.vue'),
+                        meta: { title: 'Наши Юр. Лица' }
+                    },
+                    {
+                        path: 'counterparties',
+                        name: 'books.counterparties',
+                        component: () => import('../views/books/tabs/CounterpartiesBook.vue'),
+                        meta: { title: 'Контрагенты' }
+                    },
+                    {
+                        path: 'insurance-companies',
+                        name: 'books.insurance-companies',
+                        component: () => import('../views/books/tabs/InsuranceCompaniesBook.vue'),
+                        meta: { title: 'Страховые компании' }
+                    },
+                ]
             },
 
             ...applicationRoutes,

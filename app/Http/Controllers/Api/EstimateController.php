@@ -4,192 +4,263 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Application;
-use App\Models\SparePart;
 use App\Models\Work;
+use App\Models\FactWork;
+use App\Models\ExtraExpense;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 
-class EstimateController extends Controller
+class EstimateWorksController extends Controller
 {
-    /**
-     * Получение всех данных сметы по заявке
-     */
-    public function show(int $applicationId): JsonResponse
+    // Определение типа автора
+    protected function resolveAuthorType($user, $app): int
     {
-        $app = Application::findOrFail($applicationId);
+        if (!$user)
+            return 0;
+        $uid = (int) $user->id;
+        $gid = (int) ($user->GroupId ?? $user->user_group_id ?? 0);
 
-        $spareParts = SparePart::where('application_id', $applicationId)
+        if ($app) {
+            $mrkId = (int) ($app->id_user ?? $app->mrk_id ?? 0);
+            $mentorId = (int) ($app->mentor_id ?? 0);
+            $serviceUserId = (int) ($app->service_user_id ?? 0);
+
+            if ($mrkId && $uid === $mrkId)
+                return 1;
+            if ($mentorId && $uid === $mentorId)
+                return 2;
+            if ($serviceUserId && $uid === $serviceUserId)
+                return 4;
+        }
+
+        if ($gid === 8 || ($user->is_service ?? false))
+            return 4;
+        if ($gid === 5)
+            return 1;
+        if ($gid === 10)
+            return 2;
+
+        return 5;
+    }
+
+    // =========================================================================
+    // 1. РЕМОНТНЫЕ И ОКРАСОЧНЫЕ РАБОТЫ (ИЗ КАЛЬКУЛЯЦИИ)
+    // =========================================================================
+
+    public function getCalcWorks(int $applicationId): JsonResponse
+    {
+        $works = Work::where('application_id', $applicationId)
             ->orderBy('id', 'asc')
             ->get();
 
-        $repairWorks = Work::where('application_id', $applicationId)
-            ->where('type', 'repair')
-            ->orderBy('id', 'asc')
-            ->get();
-
-        $paintWorks = Work::where('application_id', $applicationId)
-            ->where('type', 'paint')
-            ->orderBy('id', 'asc')
-            ->get();
+        $repair = $works->where('work_category', 'repair')->values();
+        $paint = $works->where('work_category', 'paint')->values();
 
         return response()->json([
-            'spare_parts' => $spareParts,
-            'repair_works' => $repairWorks,
-            'paint_works' => $paintWorks,
-            'summary' => [
-                'sum_sk' => (float) ($app->sum_sk ?? 0),
-                'sum_zap' => (float) ($app->sum_zap ?? 0),
-                'remont_sum' => (float) ($app->remont_sum ?? 0),
+            'repair' => $repair,
+            'paint' => $paint,
+            'totals' => [
+                'repair_ic' => $repair->sum('sum_ic'),
+                'repair_pzn' => $repair->sum('sum_pzn'),
+                'paint_ic' => $paint->sum('sum_ic'),
+                'paint_pzn' => $paint->sum('sum_pzn'),
             ]
         ]);
     }
 
-    /**
-     * Добавление новой запчасти
-     */
-    public function storeSparePart(Request $request, int $applicationId): JsonResponse
+    public function storeCalcWork(Request $request, int $applicationId): JsonResponse
     {
-        $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'part_number' => ['nullable', 'string', 'max:100'],
-            'count' => ['required', 'numeric', 'min:1'],
-            'price_sk' => ['nullable', 'numeric', 'min:0'],
-            'sto_price' => ['nullable', 'numeric', 'min:0'],
-            'orig_price' => ['nullable', 'numeric', 'min:0'],
-            'anal_price' => ['nullable', 'numeric', 'min:0'],
-            'bu_price' => ['nullable', 'numeric', 'min:0'],
-            'buy_price' => ['nullable', 'numeric', 'min:0'],
-            'status' => ['nullable', 'string', 'max:50'],
-            'term' => ['nullable', 'string', 'max:50'],
+        $category = $request->input('work_category', 'repair');
+        $user = Auth::user();
+        $app = Application::findOrFail($applicationId);
+
+        $work = Work::create([
+            'application_id' => $applicationId,
+            'work_category' => $category,
+            'name' => $request->input('name', $category === 'repair' ? 'Новая слесарная работа' : 'Окраска детали'),
+            'norm_hours' => (float) $request->input('norm_hours', 1),
+            'pzn_hours' => (float) $request->input('pzn_hours', 1),
+            'price_per_hour' => (float) $request->input('price_per_hour', 1500),
+            'sum_materials' => (float) $request->input('sum_materials', 0),
+            'sum_ic' => (float) $request->input('sum_ic', 1500),
+            'sum_pzn' => (float) $request->input('sum_pzn', 1500),
+            'author_type' => $this->resolveAuthorType($user, $app),
         ]);
 
-        $validated['application_id'] = $applicationId;
-        $part = SparePart::create($validated);
-
-        $this->recalculateApplicationSums($applicationId);
-
-        return response()->json($part, 201);
+        return response()->json(['data' => $work], 201);
     }
 
-    /**
-     * Обновление строки запчасти (включая выбор закупки в 1 клик)
-     */
-    public function updateSparePart(Request $request, int $applicationId, int $partId): JsonResponse
+    public function updateCalcWorkField(Request $request, int $applicationId, int $id): JsonResponse
     {
-        $part = SparePart::where('application_id', $applicationId)->findOrFail($partId);
+        $work = Work::where('application_id', $applicationId)->findOrFail($id);
+        $field = $request->input('field');
+        $value = $request->input('value');
 
-        $data = $request->only([
-            'name',
-            'part_number',
-            'count',
-            'price_sk',
-            'sto_price',
-            'orig_price',
-            'anal_price',
-            'bu_price',
-            'buy_price',
-            'status',
-            'term'
-        ]);
+        if (in_array($field, ['norm_hours', 'pzn_hours', 'price_per_hour', 'sum_materials', 'sum_ic', 'sum_pzn'])) {
+            $value = (float) str_replace([' ', ','], ['', '.'], $value);
+        }
 
-        $part->update($data);
+        $work->{$field} = $value;
 
-        $this->recalculateApplicationSums($applicationId);
+        // Автопересчет сумм
+        if (in_array($field, ['norm_hours', 'pzn_hours', 'price_per_hour', 'sum_materials'])) {
+            $laborIc = (float) $work->norm_hours * (float) $work->price_per_hour;
+            $laborPzn = (float) $work->pzn_hours * (float) $work->price_per_hour;
 
-        return response()->json($part);
-    }
+            if ($work->work_category === 'paint') {
+                $work->sum_ic = $laborIc + (float) $work->sum_materials;
+                $work->sum_pzn = $laborPzn + (float) $work->sum_materials;
+            } else {
+                $work->sum_ic = $laborIc;
+                $work->sum_pzn = $laborPzn;
+            }
+        }
 
-    /**
-     * Удаление запчасти
-     */
-    public function destroySparePart(int $applicationId, int $partId): JsonResponse
-    {
-        $part = SparePart::where('application_id', $applicationId)->findOrFail($partId);
-        $part->delete();
-
-        $this->recalculateApplicationSums($applicationId);
-
-        return response()->json(['message' => 'Запчасть удалена']);
-    }
-
-    /**
-     * Добавление работы (слесарная или окрасочная)
-     */
-    public function storeWork(Request $request, int $applicationId): JsonResponse
-    {
-        $validated = $request->validate([
-            'type' => ['required', 'in:repair,paint'],
-            'name' => ['required', 'string', 'max:255'],
-            'norm_hour' => ['required', 'numeric', 'min:0'],
-            'cost_hour' => ['required', 'numeric', 'min:0'],
-            'paint_cost' => ['nullable', 'numeric', 'min:0'], // для окраски (материалы)
-            'sto_hour' => ['nullable', 'numeric', 'min:0'],
-            'sto_cost' => ['nullable', 'numeric', 'min:0'],
-        ]);
-
-        $validated['application_id'] = $applicationId;
-        $work = Work::create($validated);
-
-        $this->recalculateApplicationSums($applicationId);
-
-        return response()->json($work, 201);
-    }
-
-    /**
-     * Обновление работы
-     */
-    public function updateWork(Request $request, int $applicationId, int $workId): JsonResponse
-    {
-        $work = Work::where('application_id', $applicationId)->findOrFail($workId);
-
-        $work->update($request->only([
-            'name',
-            'norm_hour',
-            'cost_hour',
-            'paint_cost',
-            'sto_hour',
-            'sto_cost'
-        ]));
-
-        $this->recalculateApplicationSums($applicationId);
-
-        return response()->json($work);
-    }
-
-    /**
-     * Удаление работы
-     */
-    public function destroyWork(int $applicationId, int $workId): JsonResponse
-    {
-        $work = Work::where('application_id', $applicationId)->findOrFail($workId);
-        $work->delete();
-
-        $this->recalculateApplicationSums($applicationId);
-
-        return response()->json(['message' => 'Работа удалена']);
-    }
-
-    /**
-     * Автоматический пересчет итоговых сумм в таблице applications
-     */
-    private function recalculateApplicationSums(int $applicationId): void
-    {
+        $user = Auth::user();
         $app = Application::find($applicationId);
-        if (!$app)
-            return;
+        $work->author_type = $this->resolveAuthorType($user, $app);
+        $work->save();
 
-        // Себестоимость купленных деталей
-        $sumZap = SparePart::where('application_id', $applicationId)
-            ->sum(DB::raw('COALESCE(buy_price, 0) * COALESCE(count, 1)'));
+        return response()->json(['data' => $work]);
+    }
 
-        // Себестоимость ремонтных и окрасочных работ
-        $repairSum = Work::where('application_id', $applicationId)
-            ->sum(DB::raw('(COALESCE(norm_hour, 0) * COALESCE(cost_hour, 0)) + COALESCE(paint_cost, 0)'));
+    // Перевод работы в категорию «Окраска» (аналог makePaint из старой системы)
+    public function toggleCategory(int $applicationId, int $id): JsonResponse
+    {
+        $work = Work::where('application_id', $applicationId)->findOrFail($id);
+        $work->work_category = $work->work_category === 'repair' ? 'paint' : 'repair';
+        $work->save();
 
-        $app->update([
-            'sum_zap' => $sumZap,
-            'remont_sum' => $repairSum,
+        return response()->json(['data' => $work]);
+    }
+
+    public function destroyCalcWork(int $applicationId, int $id): JsonResponse
+    {
+        Work::where('application_id', $applicationId)->where('id', $id)->delete();
+        return response()->json(['status' => 'ok']);
+    }
+
+    // =========================================================================
+    // 2. ФАКТИЧЕСКИЕ РАБОТЫ (АКТ ВЫПОЛНЕННЫХ РАБОТ СТО)
+    // =========================================================================
+
+    public function getFactWorks(int $applicationId): JsonResponse
+    {
+        $facts = FactWork::where('application_id', $applicationId)
+            ->orderBy('id', 'asc')
+            ->get();
+
+        return response()->json([
+            'data' => $facts,
+            'total_sum' => $facts->sum('price_service')
         ]);
+    }
+
+    public function storeFactWork(Request $request, int $applicationId): JsonResponse
+    {
+        $user = Auth::user();
+        $app = Application::findOrFail($applicationId);
+
+        $fact = FactWork::create([
+            'application_id' => $applicationId,
+            'name' => $request->input('name', 'Фактическая работа СТО'),
+            'price_service' => (float) $request->input('price_service', 0),
+            'execution_date' => $request->input('execution_date', now()->toDateString()),
+            'author_type' => $this->resolveAuthorType($user, $app),
+            'created_by_user_id' => $user?->id,
+            'updated_by_user_id' => $user?->id,
+        ]);
+
+        return response()->json(['data' => $fact], 201);
+    }
+
+    public function updateFactWorkField(Request $request, int $applicationId, int $id): JsonResponse
+    {
+        $fact = FactWork::where('application_id', $applicationId)->findOrFail($id);
+        $field = $request->input('field');
+        $value = $request->input('value');
+
+        if ($field === 'price_service') {
+            $value = (float) str_replace([' ', ','], ['', '.'], $value);
+        }
+
+        $user = Auth::user();
+        $app = Application::find($applicationId);
+
+        $fact->{$field} = $value;
+        $fact->author_type = $this->resolveAuthorType($user, $app);
+        $fact->updated_by_user_id = $user?->id;
+        $fact->save();
+
+        return response()->json(['data' => $fact]);
+    }
+
+    public function destroyFactWork(int $applicationId, int $id): JsonResponse
+    {
+        FactWork::where('application_id', $applicationId)->where('id', $id)->delete();
+        return response()->json(['status' => 'ok']);
+    }
+
+    // =========================================================================
+    // 3. ДОПОЛНИТЕЛЬНЫЕ ЗАТРАТЫ (ЭВАКУАТОР, МОЙКА, ТАКСИ, СЕРТИФИКАТЫ)
+    // =========================================================================
+
+    public function getExtraExpenses(int $applicationId): JsonResponse
+    {
+        $expenses = ExtraExpense::where('application_id', $applicationId)
+            ->orderBy('id', 'asc')
+            ->get();
+
+        return response()->json([
+            'data' => $expenses,
+            'total_sum' => $expenses->sum('sum')
+        ]);
+    }
+
+    public function storeExtraExpense(Request $request, int $applicationId): JsonResponse
+    {
+        $user = Auth::user();
+        $app = Application::findOrFail($applicationId);
+
+        $expense = ExtraExpense::create([
+            'application_id' => $applicationId,
+            'name' => $request->input('name', 'Эвакуатор'),
+            'expense_type' => $request->input('expense_type', 'эвакуатор'),
+            'sum' => (float) $request->input('sum', 0),
+            'comment' => $request->input('comment', ''),
+            'author_type' => $this->resolveAuthorType($user, $app),
+            'created_by_user_id' => $user?->id,
+            'updated_by_user_id' => $user?->id,
+        ]);
+
+        return response()->json(['data' => $expense], 201);
+    }
+
+    public function updateExtraExpenseField(Request $request, int $applicationId, int $id): JsonResponse
+    {
+        $expense = ExtraExpense::where('application_id', $applicationId)->findOrFail($id);
+        $field = $request->input('field');
+        $value = $request->input('value');
+
+        if ($field === 'sum') {
+            $value = (float) str_replace([' ', ','], ['', '.'], $value);
+        }
+
+        $user = Auth::user();
+        $app = Application::find($applicationId);
+
+        $expense->{$field} = $value;
+        $expense->author_type = $this->resolveAuthorType($user, $app);
+        $expense->updated_by_user_id = $user?->id;
+        $expense->save();
+
+        return response()->json(['data' => $expense]);
+    }
+
+    public function destroyExtraExpense(int $applicationId, int $id): JsonResponse
+    {
+        ExtraExpense::where('application_id', $applicationId)->where('id', $id)->delete();
+        return response()->json(['status' => 'ok']);
     }
 }

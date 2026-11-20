@@ -155,6 +155,49 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/{partId}', [SparePartController::class, 'destroy']);
     });
 
+    // Справочники типовых работ и цен СТО
+    Route::prefix('standard-works')->group(function () {
+        Route::get('services-list', [\App\Http\Controllers\Api\StandardWorkController::class, 'getServicesList']);
+        Route::get('service-prices/{serviceId}', [\App\Http\Controllers\Api\StandardWorkController::class, 'getServicePrices']);
+        Route::get('/', [\App\Http\Controllers\Api\StandardWorkController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Api\StandardWorkController::class, 'store']);
+        Route::put('{id}/field', [\App\Http\Controllers\Api\StandardWorkController::class, 'updateField']);
+        Route::post('service-prices/{serviceId}', [\App\Http\Controllers\Api\StandardWorkController::class, 'setServicePrice']);
+        Route::delete('{id}', [\App\Http\Controllers\Api\StandardWorkController::class, 'destroy']);
+    });
+
+    // Калькуляция: ремонтные и окрасочные работы
+    Route::get('applications/{id}/calc-works', [\App\Http\Controllers\Api\EstimateWorksController::class, 'getCalcWorks']);
+    Route::post('applications/{id}/calc-works', [\App\Http\Controllers\Api\EstimateWorksController::class, 'storeCalcWork']);
+    Route::put('applications/{id}/calc-works/{workId}/field', [\App\Http\Controllers\Api\EstimateWorksController::class, 'updateCalcWorkField']);
+    Route::post('applications/{id}/calc-works/{workId}/toggle-category', [\App\Http\Controllers\Api\EstimateWorksController::class, 'toggleCategory']);
+    Route::delete('applications/{id}/calc-works/{workId}', [\App\Http\Controllers\Api\EstimateWorksController::class, 'destroyCalcWork']);
+
+    // Фактические работы СТО
+    Route::get('applications/{id}/fact-works', [\App\Http\Controllers\Api\EstimateWorksController::class, 'getFactWorks']);
+    Route::post('applications/{id}/fact-works', [\App\Http\Controllers\Api\EstimateWorksController::class, 'storeFactWork']);
+    Route::put('applications/{id}/fact-works/{workId}/field', [\App\Http\Controllers\Api\EstimateWorksController::class, 'updateFactWorkField']);
+    Route::delete('applications/{id}/fact-works/{workId}', [\App\Http\Controllers\Api\EstimateWorksController::class, 'destroyFactWork']);
+
+    // Дополнительные затраты
+    Route::get('applications/{id}/extra-expenses', [\App\Http\Controllers\Api\EstimateWorksController::class, 'getExtraExpenses']);
+    Route::post('applications/{id}/extra-expenses', [\App\Http\Controllers\Api\EstimateWorksController::class, 'storeExtraExpense']);
+    Route::put('applications/{id}/extra-expenses/{expenseId}/field', [\App\Http\Controllers\Api\EstimateWorksController::class, 'updateExtraExpenseField']);
+    Route::delete('applications/{id}/extra-expenses/{expenseId}', [\App\Http\Controllers\Api\EstimateWorksController::class, 'destroyExtraExpense']);
+    // Маршруты для плановых работ дела
+    Route::prefix('applications/{id}/plan-works')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\PlanWorkController::class, 'index']);
+        Route::post('/', [\App\Http\Controllers\Api\PlanWorkController::class, 'store']); // <-- ЭТОГО МАРШРУТА НЕ БЫЛО
+        Route::put('/{workId}/field', [\App\Http\Controllers\Api\PlanWorkController::class, 'updateField']);
+        Route::delete('/{workId}', [\App\Http\Controllers\Api\PlanWorkController::class, 'destroy']);
+        Route::post('/sync-service-prices', [\App\Http\Controllers\Api\PlanWorkController::class, 'syncPricesWithService']);
+        Route::post('/service-approval', [\App\Http\Controllers\Api\PlanWorkController::class, 'submitServiceApproval']);
+        Route::post('/complete-approval', [\App\Http\Controllers\Api\PlanWorkController::class, 'completeApproval']);
+    });
+
+    // Эндпоинт опций справочника работ для сметы
+    Route::get('standard-works/application-options', [\App\Http\Controllers\Api\Admin\StandardWorkController::class, 'getApplicationOptions']);
+
 });
 
 // ==========================================

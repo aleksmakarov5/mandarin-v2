@@ -45,6 +45,10 @@ class ApplicationController extends Controller
 
             if (method_exists($appInstance, 'status'))
                 $withRelations[] = 'status';
+            if (method_exists($appInstance, 'financeStatus'))
+                $withRelations[] = 'financeStatus';
+            if (method_exists($appInstance, 'finStatus'))
+                $withRelations[] = 'finStatus';
             if (method_exists($appInstance, 'insuranceCompany'))
                 $withRelations[] = 'insuranceCompany:id,name';
             if (method_exists($appInstance, 'ourCompany'))
@@ -82,6 +86,21 @@ class ApplicationController extends Controller
                 $query->whereIn('id_status', $this->tabs[$tab]);
             }
 
+            // 1.1. Фильтр по финансовым статусам
+            if ($request->filled('finance_status_ids')) {
+                $finIds = is_array($request->finance_status_ids)
+                    ? $request->finance_status_ids
+                    : explode(',', (string) $request->finance_status_ids);
+                $cleanFinIds = array_filter(array_map('trim', $finIds));
+                if (!empty($cleanFinIds)) {
+                    $finCol = Schema::hasColumn('applications', 'finance_status_id')
+                        ? 'finance_status_id'
+                        : (Schema::hasColumn('applications', 'id_finance_status') ? 'id_finance_status' : 'finance_statuses_id');
+
+                    $query->whereIn($finCol, $cleanFinIds);
+                }
+            }
+
             // 2. Изоляция по филиалам и правам
             $stoUserLogged = false;
             $currentUserServiceId = null;
@@ -92,7 +111,6 @@ class ApplicationController extends Controller
                     $currentUserServiceId = method_exists($user, 'getServiceId') ? $user->getServiceId() : null;
 
                     if ($currentUserServiceId) {
-                        // Поддерживаем оба возможных названия колонки в БД
                         $serviceCol = Schema::hasColumn('applications', 'id_service') ? 'id_service' : 'service_id';
                         $query->where($serviceCol, $currentUserServiceId);
                     } else {
@@ -232,7 +250,7 @@ class ApplicationController extends Controller
             $perPage = (int) $request->input('per_page', 50);
             $paginator = $query->orderBy('id', 'desc')->paginate($perPage);
 
-            // ПОДГРУЖАЕМ ПОЛНУЮ КАРТУ СЕРВИСОВ НАПРЯМУЮ ИЗ ТАБЛИЦЫ SERVICES
+            // ПОДГРУЖАЕМ КАРТУ СЕРВИСОВ
             $servicesMap = collect();
             if (Schema::hasTable('services')) {
                 $serviceCols = ['id', 'name'];
@@ -247,6 +265,29 @@ class ApplicationController extends Controller
                     ->keyBy('id');
             }
 
+            // ПОДГРУЖАЕМ КАРТУ ФИНАНСОВЫХ СТАТУСОВ НАПРЯМУЮ
+            $finStatusesMap = collect();
+            if (Schema::hasTable('finance_statuses')) {
+                $finColumns = Schema::getColumnListing('finance_statuses');
+                $selectCols = ['id', 'name'];
+
+                if (in_array('fin_time', $finColumns, true))
+                    $selectCols[] = 'fin_time';
+                if (in_array('time', $finColumns, true))
+                    $selectCols[] = 'time';
+                if (in_array('fin_day', $finColumns, true))
+                    $selectCols[] = 'fin_day';
+                if (in_array('is_day', $finColumns, true))
+                    $selectCols[] = 'is_day';
+                if (in_array('day', $finColumns, true))
+                    $selectCols[] = 'day';
+
+                $finStatusesMap = DB::table('finance_statuses')
+                    ->select($selectCols)
+                    ->get()
+                    ->keyBy('id');
+            }
+
             // Таймер-сервис (если зарегистрирован в проекте)
             $timerService = null;
             if (class_exists(\App\Services\ApplicationTimerService::class)) {
@@ -257,19 +298,17 @@ class ApplicationController extends Controller
                 }
             }
 
-            $paginator->getCollection()->transform(function ($app) use ($timerService, $servicesMap, $stoUserLogged, $currentUserServiceId, $user) {
+            $paginator->getCollection()->transform(function ($app) use ($timerService, $servicesMap, $finStatusesMap, $stoUserLogged, $currentUserServiceId, $user) {
                 // ==========================================
-                // ГАРАНТИРОВАННОЕ ОПРЕДЕЛЕНИЕ СТО / СЕРВИСА
+                // СЕРВИС / СТО
                 // ==========================================
                 $servId = (int) ($app->id_service ?? $app->service_id ?? 0);
 
-                // Если у дела не проставлен ID сервиса, но сейчас авторизован пользователь СТО
                 if ($servId === 0 && $stoUserLogged && $currentUserServiceId) {
                     $servId = (int) $currentUserServiceId;
                 }
 
                 $servRow = $servId > 0 ? $servicesMap->get($servId) : null;
-
                 $servName = null;
                 $servBg = '#e0f2fe';
                 $servText = '#0369a1';
@@ -285,7 +324,6 @@ class ApplicationController extends Controller
                     $servBg = $app->service->bg_color ?? '#e0f2fe';
                     $servText = $app->service->text_color ?? '#0369a1';
                 } elseif ($stoUserLogged) {
-                    // Фолбэк: если это пользователь СТО, берем имя из профиля/сервиса пользователя
                     $servName = $user->service?->name ?? $user->name ?? 'СТО';
                 }
 
@@ -293,7 +331,6 @@ class ApplicationController extends Controller
                 $app->service_bg = $servBg;
                 $app->service_text = $servText;
 
-                // Передаем готовый объект связи service во фронтенд для компонента бейджа
                 $app->setRelation('service', (object) [
                     'id' => $servId,
                     'name' => $app->service_name,
@@ -301,17 +338,59 @@ class ApplicationController extends Controller
                     'text_color' => $app->service_text,
                 ]);
 
-                // Расчёт таймера дела
+                // ==========================================
+                // ФИНАНСОВЫЙ СТАТУС (СОГЛ / ОПЛ)
+                // ==========================================
+                $finId = (int) ($app->finance_status_id ?? $app->id_finance_status ?? $app->finance_statuses_id ?? 0);
+                $finRow = $finId > 0 ? $finStatusesMap->get($finId) : null;
+
+                if ((!$app->relationLoaded('financeStatus') || !$app->financeStatus) && $finRow) {
+                    $app->setRelation('financeStatus', (object) (array) $finRow);
+                }
+
+                $finObj = $app->financeStatus ?? $app->finStatus ?? ($finRow ? (object) (array) $finRow : null);
+
+                $finTime = 0;
+                $finDay = 0;
+                if ($finObj) {
+                    $finTime = (int) ($finObj->fin_time ?? $finObj->time ?? 0);
+                    $finDay = (int) ($finObj->fin_day ?? $finObj->is_day ?? $finObj->day ?? 0);
+                }
+
+                $app->fin_time = $finTime;
+                $app->fin_day = $finDay;
+                $app->finance_status_id = $finId;
+                $app->finance_statuses_id = $finId;
+
+                // Название для отображения в столбце и тулбаре
+                $app->finance_status_name = $finObj->name ?? $app->soglas_title ?? '';
+                if ($finObj && !isset($app->finance_status)) {
+                    $app->finance_status = [
+                        'id' => $finId,
+                        'name' => $finObj->name ?? '',
+                    ];
+                }
+
+                // ==========================================
+                // РАСЧЕТ ТАЙМЕРОВ (ОСНОВНОЙ + ФИНАНСОВЫЙ)
+                // ==========================================
+                $app->time = (int) ($app->status->time ?? $app->time ?? 0);
+                $app->day = (int) ($app->status->day ?? $app->status->is_day ?? $app->day ?? 0);
+
                 if ($timerService) {
                     try {
-                        $app->time = $app->status->time ?? $app->time ?? 0;
-                        $app->day = $app->status->day ?? $app->status->is_day ?? $app->day ?? 0;
-
                         $timers = $timerService->calculate($app);
                         $app->app_timer = $timers['app_timer'] ?? null;
                         $app->finance_timer = $timers['finance_timer'] ?? null;
+
+                        $app->max_hour = $timers['app_timer']['max_hour'] ?? 0;
+                        $app->count_hour = $timers['app_timer']['count_hour'] ?? 0;
                         $app->is_overdue = $timers['app_timer']['is_overdue'] ?? false;
+                        $app->is_day = $timers['app_timer']['is_day'] ?? false;
                         $app->time_status_text = $timers['app_timer']['display_text'] ?? '';
+
+                        $app->max_hour_f = $timers['finance_timer']['max_hour_f'] ?? 0;
+                        $app->count_hour_f = $timers['finance_timer']['count_hour_f'] ?? 0;
                     } catch (\Throwable $te) {
                         $custom = $this->calculateCustomTimer($app);
                         $app->is_overdue = $custom['is_overdue'];
@@ -328,7 +407,7 @@ class ApplicationController extends Controller
                 }
 
                 $soglas = $this->calculateSoglasOplTimer($app);
-                $app->soglas_title = $soglas['title'];
+                $app->soglas_title = !empty($app->finance_status_name) ? $app->finance_status_name : $soglas['title'];
                 $app->soglas_time_text = $soglas['time_text'];
                 $app->soglas_overdue = $soglas['is_overdue'];
 
@@ -371,13 +450,16 @@ class ApplicationController extends Controller
     /**
      * Справочники для выпадающих фильтров реестра
      */
+    /**
+     * Опции для выпадающих фильтров реестра дел
+     */
     public function filterOptions(Request $request): JsonResponse
     {
         try {
             /** @var \App\Models\User|null $user */
             $user = $request->user();
 
-            // 1. Статусы
+            // 1. Статусы дел
             $statuses = ApplicationStatus::orderBy('id', 'asc')
                 ->get()
                 ->map(function ($st) {
@@ -409,7 +491,20 @@ class ApplicationController extends Controller
                     ];
                 });
 
-            // 2. Города
+            // 2. Финансовые статусы (Согл/Опл)
+            $financeStatuses = [];
+            if (Schema::hasTable('finance_statuses')) {
+                $financeStatuses = DB::table('finance_statuses')
+                    ->select('id', 'name')
+                    ->orderBy('id', 'asc')
+                    ->get()
+                    ->map(fn($f) => [
+                        'id' => (int) $f->id,
+                        'name' => $f->name ?? "Фин. статус #{$f->id}",
+                    ]);
+            }
+
+            // 3. Города
             $citiesQuery = City::select('id', 'name')->orderBy('name', 'asc');
             if ($user && method_exists($user, 'isSystemAdmin') && !$user->isSystemAdmin() && method_exists($user, 'cities')) {
                 $cityIds = $user->cities()->pluck('cities.id')->toArray();
@@ -419,60 +514,120 @@ class ApplicationController extends Controller
             }
             $cities = $citiesQuery->get();
 
-            // 3. Страховые компании
+            // 4. Страховые компании
             $insuranceCompanies = InsuranceCompany::select('id', 'name')
                 ->orderBy('name', 'asc')
                 ->get();
 
-            // 4. Филиалы / СТОА
+            // 5. Филиалы / СТОА
             $branchesQuery = OurCompany::query();
-            if ($user && method_exists($user, 'isSystemAdmin') && !$user->isSystemAdmin() && method_exists($user, 'getAvailableBranchIds')) {
-                $available = $user->getAvailableBranchIds();
-                if (!empty($available)) {
-                    $branchesQuery->whereIn('id', $available);
+            $availableBranchIds = [];
+
+            if ($user) {
+                if (method_exists($user, 'isSystemAdmin') && $user->isSystemAdmin()) {
+                    $availableBranchIds = OurCompany::pluck('id')->toArray();
+                } elseif (method_exists($user, 'getAvailableBranchIds')) {
+                    $availableBranchIds = $user->getAvailableBranchIds();
                 }
             }
-            $branches = $branchesQuery->get()->map(function ($b) {
+
+            if (!empty($availableBranchIds)) {
+                $branchesQuery->whereIn('id', $availableBranchIds);
+            }
+
+            $branches = $branchesQuery->orderBy('name', 'asc')->get()->map(function ($b) {
                 return [
-                    'id' => $b->id,
+                    'id' => (int) $b->id,
                     'name' => $b->name ?? $b->our_name ?? "Филиал #{$b->id}",
                 ];
             });
 
-            // 5. Сотрудники (МРК, запчастисты, наставники)
-            $allowedRoleCodes = ['mrk', 'zap', 'spm', 'mentor', 'nastavnik'];
-            $allowedGroupIds = [5, 6, 8, 9];
+            // 6. Сотрудники (МРК — 5, Наставник — 6, Запчастист — 9) в филиалах пользователя
+            $targetRoleIds = [5, 6, 9];
+            $userIds = collect();
 
-            $employees = User::query()
-                ->where(function ($q) use ($allowedRoleCodes, $allowedGroupIds) {
-                    if (Schema::hasColumn('users', 'user_group_id')) {
-                        $q->whereIn('user_group_id', $allowedGroupIds);
-                    }
-                    if (method_exists(User::class, 'group')) {
-                        $q->orWhereHas('group', fn($g) => $g->whereIn('code', $allowedRoleCodes));
-                    }
-                })
-                ->get()
-                ->map(function ($u) {
-                    $fio = trim(($u->last_name ?? '') . ' ' . ($u->name ?? '') . ' ' . ($u->patronymic ?? ''));
-                    return [
-                        'id' => $u->id,
-                        'name' => $fio !== '' ? $fio : ($u->name ?? $u->email),
-                        'last_name' => $u->last_name ?? $u->name,
-                    ];
-                });
+            // А. Из таблицы связей our_company_user_role
+            if (Schema::hasTable('our_company_user_role')) {
+                $roleQuery = DB::table('our_company_user_role')
+                    ->whereIn('user_group_id', $targetRoleIds);
+
+                // Ограничиваем филиалами пользователя
+                if (!empty($availableBranchIds)) {
+                    $roleQuery->whereIn('our_company_id', $availableBranchIds);
+                }
+
+                $userIds = $userIds->merge($roleQuery->pluck('user_id'));
+            }
+
+            // Б. Если роли назначены напрямую в таблице users
+            if (Schema::hasColumn('users', 'user_group_id')) {
+                $directUserQuery = DB::table('users')->whereIn('user_group_id', $targetRoleIds);
+                $userIds = $userIds->merge($directUserQuery->pluck('id'));
+            }
+
+            $uniqueUserIds = $userIds->unique()->filter()->values()->all();
+
+            // В. Загрузка пользователей со склейкой ФИО
+            $employees = collect();
+            if (!empty($uniqueUserIds)) {
+                $userCols = Schema::getColumnListing('users');
+                $hasLastName = in_array('last_name', $userCols, true);
+                $hasPatronymic = in_array('patronymic', $userCols, true) || in_array('middle_name', $userCols, true);
+                $patronymicCol = in_array('patronymic', $userCols, true) ? 'patronymic' : 'middle_name';
+
+                $selectCols = ['id', 'name'];
+                if (in_array('email', $userCols, true))
+                    $selectCols[] = 'email';
+                if ($hasLastName)
+                    $selectCols[] = 'last_name';
+                if ($hasPatronymic)
+                    $selectCols[] = "{$patronymicCol} as patronymic";
+
+                $employees = DB::table('users')
+                    ->whereIn('id', $uniqueUserIds)
+                    ->select($selectCols)
+                    ->get()
+                    ->map(function ($u) use ($hasLastName, $hasPatronymic) {
+                        $parts = [];
+                        if ($hasLastName && !empty($u->last_name)) {
+                            $parts[] = trim($u->last_name);
+                        }
+                        if (!empty($u->name)) {
+                            $parts[] = trim($u->name);
+                        }
+                        if ($hasPatronymic && !empty($u->patronymic)) {
+                            $parts[] = trim($u->patronymic);
+                        }
+
+                        $fio = implode(' ', $parts);
+
+                        return [
+                            'id' => (int) $u->id,
+                            'name' => !empty($fio) ? $fio : ($u->name ?? $u->email ?? "Сотрудник #{$u->id}"),
+                            'last_name' => $u->last_name ?? $u->name,
+                        ];
+                    })
+                    ->sortBy('name', SORT_NATURAL | SORT_FLAG_CASE)
+                    ->values();
+            }
 
             return response()->json([
                 'statuses' => $statuses,
+                'finance_statuses' => $financeStatuses,
                 'cities' => $cities,
                 'insurance_companies' => $insuranceCompanies,
                 'branches' => $branches,
                 'employees' => $employees,
             ]);
         } catch (\Throwable $e) {
-            Log::error('Ошибка в ApplicationController::filterOptions: ' . $e->getMessage());
+            Log::error('Ошибка в ApplicationController::filterOptions: ' . $e->getMessage(), [
+                'file' => $e->getFile() . ':' . $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return response()->json([
                 'statuses' => [],
+                'finance_statuses' => [],
                 'cities' => [],
                 'insurance_companies' => [],
                 'branches' => [],
@@ -480,7 +635,6 @@ class ApplicationController extends Controller
             ]);
         }
     }
-
     /**
      * Счетчики бейджей для меню
      */
