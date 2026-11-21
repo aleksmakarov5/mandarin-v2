@@ -102,10 +102,12 @@ class ApplicationController extends Controller
             }
 
             // 2. Изоляция по филиалам и правам
+            // 2. Изоляция по филиалам и правам
             $stoUserLogged = false;
             $currentUserServiceId = null;
 
             if ($user && method_exists($user, 'isSystemAdmin') && !$user->isSystemAdmin()) {
+                // А. СТО / Сервис
                 if (method_exists($user, 'isSto') && $user->isSto()) {
                     $stoUserLogged = true;
                     $currentUserServiceId = method_exists($user, 'getServiceId') ? $user->getServiceId() : null;
@@ -121,24 +123,36 @@ class ApplicationController extends Controller
                             'last_page' => 1,
                         ]);
                     }
-                } else {
+                }
+                // Б. МРК / СПМ / Сотрудники филиала
+                else {
+                    // 1. Собираем филиалы из всех возможных источников
                     $availableBranches = method_exists($user, 'getAvailableBranchIds')
-                        ? $user->getAvailableBranchIds()
+                        ? (array) $user->getAvailableBranchIds()
                         : [];
 
-                    if (!empty($availableBranches)) {
-                        $query->whereIn('our_company', $availableBranches);
+                    // Фолбэк: если pivot пуст, берем прямую привязку из таблицы users
+                    if (empty($availableBranches) && !empty($user->our_company)) {
+                        $availableBranches[] = (int) $user->our_company;
                     }
 
-                    if (method_exists($user, 'cities')) {
+                    // Если у пользователя есть доступные филиалы — фильтруем ТОЛЬКО по ним!
+                    // Не накладываем жесткий AND по городам, чтобы не отсекать дела без указанного города
+                    if (!empty($availableBranches)) {
+                        $query->whereIn('our_company', array_unique($availableBranches));
+                    }
+                    // Если филиалы вообще не заданы, но заданы города — только тогда фильтруем по городам
+                    elseif (method_exists($user, 'cities')) {
                         $availableCityIds = $user->cities()->pluck('cities.id')->toArray();
                         if (!empty($availableCityIds)) {
                             $query->whereIn('id_city', $availableCityIds);
+                        } else {
+                            // Если нет ни филиала, ни города — пользователь не должен видеть чужие данные
+                            $query->whereRaw('1 = 0');
                         }
                     }
                 }
             }
-
             // 3. Фильтр по сотрудникам
             if ($request->filled('mrk_ids')) {
                 $mrkIds = is_array($request->mrk_ids)
