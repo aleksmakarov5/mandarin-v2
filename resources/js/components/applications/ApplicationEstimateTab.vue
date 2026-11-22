@@ -63,17 +63,8 @@
             <div class="row g-3">
                 <!-- ПАРА 1: Ремонтные работы (по калькуляции) — Окрасочные работы (по калькуляции) -->
                 <template v-if="!isService && !isSpm">
-                    <div class="col-12 col-xl-12">
-                        <div class="card border-0 shadow-sm h-100 p-2 bg-white">
-                            <RepairWorksTable :application-id="effectiveAppId" @updated="onEstimateUpdated" />
-                        </div>
-                    </div>
-
-                    <div class="col-12 col-xl-12">
-                        <div class="card border-0 shadow-sm h-100 p-2 bg-white">
-                            <PaintWorksTable :application-id="effectiveAppId" @updated="onEstimateUpdated" />
-                        </div>
-                    </div>
+                    <CalculationWorksSection v-if="!isService && !isSpm" :application-id="effectiveAppId"
+                        @updated="onEstimateUpdated" />
                 </template>
 
                 <!-- ПАРА 2: Плановые работы — Фактические работы -->
@@ -98,7 +89,7 @@
 
                 <!-- ПАРА 3: Доп. затраты — Итоговые данные из калькуляции -->
                 <template v-if="!isService && !isSpm">
-                    <div class="col-12 col-xl-6">
+                    <div class="col-12 col-xl-12">
                         <div class="card border-0 shadow-sm h-100 p-2 bg-white">
                             <ExtraExpensesTable :application-id="effectiveAppId" @updated="onEstimateUpdated" />
                         </div>
@@ -106,105 +97,7 @@
 
                     <!-- Итоговые данные из калькуляции -->
                     <!-- Итоговые данные из калькуляции (в едином стиле с Ремонтными / Окрасочными работами) -->
-                    <div class="col-12 col-xl-6">
-                        <div class="card border-0 shadow-sm bg-white estimate-collapsible-card">
-                            <!-- КЛИКАБЕЛЬНАЯ ШАПКА 1:1 КАК У ДРУГИХ БЛОКОВ -->
-                            <div class="card-header bg-white border-0 py-2.5 px-3 d-flex justify-content-between align-items-center cursor-pointer user-select-none"
-                                @click="isSummaryOpen = !isSummaryOpen">
-                                <!-- Левая часть: черная иконка + Название + стрелка -->
-                                <div class="d-flex align-items-center gap-2">
-                                    <div
-                                        class="header-icon-box bg-dark text-white rounded d-flex align-items-center justify-content-center">
-                                        <i class="bi bi-calculator-fill" style="font-size: 0.85rem;"></i>
-                                    </div>
-                                    <div class="d-flex align-items-center gap-1.5">
-                                        <span class="fw-bold text-dark section-title">Итоговые данные из
-                                            калькуляции</span>
-                                        <span class="text-secondary count-bracket">(7)</span>
-                                        <i class="bi bi-chevron-right chevron-toggle text-secondary ms-0.5"
-                                            :class="{ 'rotated': isSummaryOpen }"></i>
-                                    </div>
-                                </div>
 
-                                <!-- Правая часть: Бэйджи сумм (как Сумма СК / ПЗН) -->
-                                <div class="d-flex align-items-center gap-2">
-                                    <!-- Бэйдж 1: Сумма СК (черный) -->
-                                    <div
-                                        class="header-badge-black d-flex flex-column align-items-end justify-content-center px-2.5 py-1">
-                                        <span class="badge-label-small">Сумма СК:</span>
-                                        <span class="badge-val-big font-monospace">{{ formatMoney(totalSkSum) }}
-                                            ₽</span>
-                                    </div>
-
-                                    <!-- Бэйдж 2: Маржинальный остаток -->
-                                    <div class="header-badge-outlined d-flex flex-column align-items-end justify-content-center px-2.5 py-1"
-                                        :class="totalRemains >= 0 ? 'badge-profit-border' : 'badge-loss-border'">
-                                        <span class="badge-label-small">Маржа ({{ marginPercent }}%):</span>
-                                        <span class="badge-val-big font-monospace"
-                                            :class="totalRemains >= 0 ? 'text-success' : 'text-danger'">
-                                            {{ formatMoney(totalRemains) }} ₽
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- РАСКРЫВАЮЩЕЕСЯ ТЕЛО КАРТОЧКИ -->
-                            <div v-show="isSummaryOpen" class="card-body p-0 border-top">
-                                <div class="table-responsive">
-                                    <table
-                                        class="table table-sm table-bordered mb-0 align-middle font-monospace summary-detail-table">
-                                        <tbody>
-                                            <tr>
-                                                <td class="text-muted fw-semibold ps-3">Калькуляция запчастей (СК)</td>
-                                                <td class="text-end fw-bold text-primary pe-3">{{
-                                                    formatMoney(totalPartsSk) }} ₽</td>
-                                            </tr>
-                                            <tr>
-                                                <td class="text-muted fw-semibold ps-3">Калькуляция работ (Ремонт +
-                                                    Окраска СК)</td>
-                                                <td class="text-end fw-bold text-primary pe-3">{{
-                                                    formatMoney(totalWorksSkSum) }} ₽</td>
-                                            </tr>
-                                            <tr class="table-subtotal-row">
-                                                <td class="fw-bold text-dark ps-3">ИТОГО СОГЛАСОВАНО СК:</td>
-                                                <td class="text-end fw-bold text-primary pe-3 fs-6">{{
-                                                    formatMoney(totalSkSum) }} ₽</td>
-                                            </tr>
-                                            <tr>
-                                                <td class="text-muted fw-semibold ps-3">Закупка запчастей (факт/выбрано)
-                                                </td>
-                                                <td class="text-end fw-bold text-danger pe-3">-{{
-                                                    formatMoney(totalPartsCost) }} ₽</td>
-                                            </tr>
-                                            <tr>
-                                                <td class="text-muted fw-semibold ps-3">Затраты на ремонт и окраску
-                                                    (СТО)</td>
-                                                <td class="text-end fw-bold text-danger pe-3">-{{
-                                                    formatMoney(totalWorksCost) }} ₽</td>
-                                            </tr>
-                                            <tr>
-                                                <td class="text-muted fw-semibold ps-3">Дополнительные расходы</td>
-                                                <td class="text-end fw-bold text-danger pe-3">-{{
-                                                    formatMoney(totalExpensesCost) }} ₽</td>
-                                            </tr>
-                                            <tr class="table-subtotal-row">
-                                                <td class="fw-bold text-dark ps-3">ИТОГО ЗАТРАТЫ:</td>
-                                                <td class="text-end fw-bold text-dark pe-3 fs-6">{{
-                                                    formatMoney(totalActualCostWithExpenses) }} ₽</td>
-                                            </tr>
-                                            <tr :class="totalRemains >= 0 ? 'table-profit-row' : 'table-loss-row'">
-                                                <td class="fw-bold ps-3">ОСТАТОК / ПРИБЫЛЬ:</td>
-                                                <td class="text-end fw-bold pe-3 fs-6"
-                                                    :class="totalRemains >= 0 ? 'text-success' : 'text-danger'">
-                                                    {{ totalRemains >= 0 ? '+' : '' }}{{ formatMoney(totalRemains) }} ₽
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
                 </template>
             </div>
         </template>
@@ -221,8 +114,7 @@ import SparePartsTable from '../../modules/applications/estimate/parts/SparePart
 import PlanWorksTable from '../../modules/applications/estimate/works/PlanWorksTable.vue';
 import FactWorksTable from '../../modules/applications/estimate/works/FactWorksTable.vue';
 import ExtraExpensesTable from '../../modules/applications/estimate/works/ExtraExpensesTable.vue';
-import RepairWorksTable from '../../modules/applications/estimate/works/RepairWorksTable.vue';
-import PaintWorksTable from '../../modules/applications/estimate/works/PaintWorksTable.vue';
+import CalculationWorksSection from '../../modules/applications/estimate/works/CalculationWorksSection.vue';
 
 const props = defineProps({
     applicationId: {

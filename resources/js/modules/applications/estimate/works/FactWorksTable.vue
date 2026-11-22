@@ -3,14 +3,13 @@
         <!-- ЗАГОЛОВОК АККОРДЕОНА (В ЕДИНОМ СТИЛЕ С ПЛАНОМ И ЗАПЧАСТЯМИ) -->
         <div
             class="section-header-row d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom flex-wrap gap-2">
-            <div class="d-flex align-items-center gap-2 cursor-pointer select-none accordion-toggle-btn"
-                @click="isCollapsed = !isCollapsed">
+            <div class="d-flex align-items-center gap-2" @click="isCollapsed = !isCollapsed">
                 <div class="section-icon-box bg-success text-white p-1 rounded">
                     <i class="bi bi-tools"></i>
                 </div>
-                <h6 class="section-title m-0 fw-bold text-dark d-flex align-items-center gap-2">
+                <h6 class="m-0 fw-bold text-dark d-flex align-items-center gap-1.5 section-title-text">
                     <span>Фактические работы (Акт СТО)</span>
-                    <span class="text-muted fw-normal fs-7">({{ works.length }})</span>
+                    <span class=" text-muted fw-normal fs-7">({{ works.length }})</span>
                     <i class="bi bi-chevron-down accordion-arrow ms-1 text-secondary"
                         :class="{ 'accordion-arrow-rotated': isCollapsed }"></i>
                 </h6>
@@ -18,14 +17,15 @@
 
             <!-- БАДЖ ИТОГО + КНОПКА ИМПОРТА ИЗ ПЛАНА + ИСТОРИЯ -->
             <div class="d-flex align-items-center gap-2 flex-wrap">
-                <div
-                    class="summary-pill d-flex align-items-center gap-2 px-2.5 py-1 bg-dark text-white rounded font-monospace">
-                    <span class="text-white-50 small">Итого:</span>
-                    <span class="fw-bold">{{ formatMoney(totalSum) }} ₽</span>
+                <div class="badge-black-pill font-monospace" title="Итоговая сумма плановых работ">
+                    <span class="pill-label">Итого:</span>
+                    <span class="pill-val">{{ formatMoney(totalSum) }} ₽</span>
                 </div>
 
+
                 <!-- КНОПКА "ИМПОРТ ИЗ ПЛАНА" -->
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold d-flex align-items-center shadow-xs"
+                <button type="button"
+                    class="btn btn-sm btn-outline-mandarin fw-semibold d-flex align-items-center shadow-xs"
                     :disabled="isImporting" @click="importFromPlan"
                     title="Скопировать согласованные работы из плана в факт">
                     <span v-if="isImporting" class="spinner-border spinner-border-xs me-1.5"></span>
@@ -593,5 +593,56 @@ onMounted(fetchFactWorks);
 .table-mandarin tbody tr.row-other td {
     background-color: #fed7aa !important;
     color: #7c2d12 !important;
+}
+
+.btn-outline-mandarin {
+    border: 1px solid #f97316;
+    color: #ea580c;
+    background-color: #ffffff;
+    padding: 3px 10px;
+    font-size: 0.74rem;
+    border-radius: 5px;
+    transition: all 0.15s ease;
+}
+
+.btn-outline-mandarin:hover {
+    background-color: #f97316;
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(249, 115, 22, 0.25);
+}
+
+.badge-black-pill {
+    background-color: #1e293b;
+    color: #ffffff;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.76rem;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.pill-label {
+    font-size: 0.68rem;
+    opacity: 0.85;
+}
+
+.pill-val {
+    font-weight: 700;
+}
+
+.btn-history {
+    font-size: 0.74rem;
+    padding: 3px 10px;
+    border-radius: 5px;
+    background-color: #ffffff;
+    border-color: #cbd5e1;
+    color: #475569;
+}
+
+.btn-history:hover {
+    background-color: #f1f5f9;
+    color: #1e293b;
 }
 </style>

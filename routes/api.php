@@ -216,6 +216,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/{expenseId}', [\App\Http\Controllers\Api\ExtraExpenseController::class, 'destroy']);
     });
 
+    Route::prefix('applications/{id}/calculation-works')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\CalculationWorkController::class, 'index']);
+        Route::get('/history', [\App\Http\Controllers\Api\CalculationWorkController::class, 'history']);
+        Route::post('/', [\App\Http\Controllers\Api\CalculationWorkController::class, 'store']);
+        Route::post('/materials', [\App\Http\Controllers\Api\CalculationWorkController::class, 'saveMaterials']);
+        Route::put('/{workId}/field', [\App\Http\Controllers\Api\CalculationWorkController::class, 'updateField']);
+        Route::post('/{workId}/transfer', [\App\Http\Controllers\Api\CalculationWorkController::class, 'transfer']);
+        Route::delete('/{workId}', [\App\Http\Controllers\Api\CalculationWorkController::class, 'destroy']);
+    });
+
     Route::prefix('estimate')->group(function () {
         Route::get('/application/{applicationId}', [\App\Http\Controllers\Api\EstimateController::class, 'showByApplication']);
         Route::post('/{id}/update', [\App\Http\Controllers\Api\EstimateController::class, 'update']);

@@ -26,10 +26,9 @@
 
             <!-- БАДЖ ИТОГО + КНОПКИ + ИСТОРИЯ ИЗМЕНЕНИЙ -->
             <div class="d-flex align-items-center gap-2 flex-wrap">
-                <div
-                    class="summary-pill d-flex align-items-center gap-2 px-2.5 py-1 bg-dark text-white rounded font-monospace">
-                    <span class="text-white-50 small">Итого:</span>
-                    <span class="fw-bold">{{ formatMoney(totalSum) }} ₽</span>
+                <div class="badge-black-pill font-monospace" title="Итоговая сумма плановых работ">
+                    <span class="pill-label">Итого:</span>
+                    <span class="pill-val">{{ formatMoney(totalSum) }} ₽</span>
                 </div>
 
                 <!-- Кнопка Сервиса: "Согласовать" -->
@@ -47,7 +46,7 @@
                 </button>
                 <!-- Кнопка быстрой сверки/пересчета цен под текущий автосервис -->
                 <button v-if="currentEffectiveServiceId" type="button"
-                    class="btn btn-sm btn-outline-primary fw-semibold d-flex align-items-center shadow-xs"
+                    class="btn btn-sm btn-outline-mandarin fw-semibold d-flex align-items-center shadow-xs"
                     title="Пересчитать цены позиций из каталога по прайс-листу выбранного СТО"
                     @click="syncWithService(currentEffectiveServiceId)">
                     <i class="bi bi-arrow-repeat me-1.5"></i> Обновить цены СТО
@@ -759,5 +758,56 @@ onMounted(fetchPlanWorks);
     background-color: #fee2e2 !important;
     text-decoration: line-through;
     opacity: 0.75;
+}
+
+.btn-outline-mandarin {
+    border: 1px solid #f97316;
+    color: #ea580c;
+    background-color: #ffffff;
+    padding: 3px 10px;
+    font-size: 0.74rem;
+    border-radius: 5px;
+    transition: all 0.15s ease;
+}
+
+.btn-outline-mandarin:hover {
+    background-color: #f97316;
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(249, 115, 22, 0.25);
+}
+
+.badge-black-pill {
+    background-color: #1e293b;
+    color: #ffffff;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.76rem;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.pill-label {
+    font-size: 0.68rem;
+    opacity: 0.85;
+}
+
+.pill-val {
+    font-weight: 700;
+}
+
+.btn-history {
+    font-size: 0.74rem;
+    padding: 3px 10px;
+    border-radius: 5px;
+    background-color: #ffffff;
+    border-color: #cbd5e1;
+    color: #475569;
+}
+
+.btn-history:hover {
+    background-color: #f1f5f9;
+    color: #1e293b;
 }
 </style>

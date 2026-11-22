@@ -40,7 +40,7 @@
                         <tr class="header-blue text-center">
                             <th style="width: 38px;">#</th>
                             <th style="width: 140px;">Категория</th>
-                            <th class="text-start ps-3">Статья расходов</th>
+                            <th class="text-start ps-3">Описание</th>
                             <th style="width: 130px;" class="text-end pe-3">Сумма (₽)</th>
                             <th style="min-width: 160px;" class="text-start ps-3">Комментарий</th>
                             <th style="width: 40px;"></th>
