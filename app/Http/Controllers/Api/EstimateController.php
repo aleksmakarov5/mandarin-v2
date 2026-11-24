@@ -12,6 +12,112 @@ use Illuminate\Support\Facades\Schema;
 
 class EstimateController extends Controller
 {
+
+    /**
+     * Получение сводных данных сметы и ролей текущего пользователя для карточки дела
+     */
+    public function show(Request $request, int $id): JsonResponse
+    {
+        try {
+            $application = \App\Models\Application::findOrFail($id);
+            /** @var \App\Models\User|null $user */
+            $user = $request->user();
+
+            // 1. Точное определение роли пользователя на основе методов модели User
+            $isSto = false;
+            $isSpm = false;
+            $isMrk = false;
+
+            if ($user) {
+                if (method_exists($user, 'isSto')) {
+                    $isSto = $user->isSto();
+                } else {
+                    $isSto = (int) ($user->user_group_id ?? 0) === 8 || ($user->is_service ?? false);
+                }
+
+                if (method_exists($user, 'isSpm')) {
+                    $isSpm = $user->isSpm();
+                } else {
+                    $isSpm = in_array((int) ($user->user_group_id ?? 0), [7, 9], true);
+                }
+
+                if (method_exists($user, 'isMrk')) {
+                    $isMrk = $user->isMrk();
+                } else {
+                    $isMrk = (int) ($user->user_group_id ?? 0) === 5;
+                }
+            }
+
+            // Роль в виде строки для фронтенда
+            $userRole = 'mrk';
+            if ($isSto) {
+                $userRole = 'service';
+            } elseif ($isSpm) {
+                $userRole = 'spm';
+            } elseif ($user && method_exists($user, 'isSystemAdmin') && $user->isSystemAdmin()) {
+                $userRole = 'admin';
+            }
+
+            // 2. Получение данных сервиса, привязанного к делу
+            $serviceId = $application->id_service ?? $application->service_id ?? null;
+            $serviceName = '';
+            if ($serviceId && \Illuminate\Support\Facades\Schema::hasTable('services')) {
+                $serviceRow = \Illuminate\Support\Facades\DB::table('services')
+                    ->where('id', $serviceId)
+                    ->first(['id', 'name']);
+                if ($serviceRow) {
+                    $serviceName = (string) $serviceRow->name;
+                }
+            }
+
+            // 3. Подсчет сумм для KPI сметы
+            $sumSk = (float) ($application->sum_sk ?? 0);
+            $sumZap = (float) ($application->sum_zap ?? 0);
+            $remontSum = (float) ($application->remont_sum ?? 0);
+            $totalCosts = $sumZap + $remontSum;
+            $remains = max(0, $sumSk - $totalCosts);
+            $marginPercent = $sumSk > 0 ? (int) round(($remains / $sumSk) * 100) : 0;
+
+            return response()->json([
+                'status' => 'ok',
+                'application_id' => $application->id,
+                'role' => $userRole,
+                'is_sto' => $isSto,
+                'is_spm' => $isSpm,
+                'is_mrk' => $isMrk,
+                'current_user' => $user ? [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'last_name' => $user->last_name ?? null,
+                    'full_name' => method_exists($user, 'getFullNameAttribute')
+                        ? $user->full_name
+                        : trim(($user->last_name ?? '') . ' ' . $user->name),
+                ] : null,
+                'service' => [
+                    'id' => $serviceId ? (int) $serviceId : null,
+                    'name' => $serviceName,
+                ],
+                'summary' => [
+                    'sum_sk' => $sumSk,
+                    'sum_zap' => $sumZap,
+                    'remont_sum' => $remontSum,
+                    'total_costs' => $totalCosts,
+                    'remains' => $remains,
+                    'margin_percent' => $marginPercent,
+                ],
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['message' => "Дело #{$id} не найдено"], 404);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error("Ошибка в EstimateController::show({$id}): " . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'message' => 'Ошибка загрузки сметы: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
     /**
      * Определение колонки привязки к делу в таблице estimates
      */

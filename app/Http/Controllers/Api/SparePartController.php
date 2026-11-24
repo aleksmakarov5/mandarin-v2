@@ -88,7 +88,16 @@ class SparePartController extends Controller
             $appKey = in_array('application_id', $columns) ? 'application_id' : 'id_application';
             $hasCommentsTable = Schema::hasTable('spare_part_comments');
 
-            $query = SparePart::with('creator:id,name')
+            $hasLastName = Schema::hasColumn('users', 'last_name');
+            $hasPatronymic = Schema::hasColumn('users', 'patronymic');
+
+            $userSelect = 'id,name';
+            if ($hasLastName)
+                $userSelect .= ',last_name';
+            if ($hasPatronymic)
+                $userSelect .= ',patronymic';
+
+            $query = SparePart::with("creator:{$userSelect}")
                 ->where($appKey, $applicationId)
                 ->orderBy(in_array('is_small_parts', $columns) ? 'is_small_parts' : 'id', 'asc')
                 ->orderBy('id', 'asc');
@@ -217,10 +226,18 @@ class SparePartController extends Controller
             }
 
             $updatedSmallPart = $this->syncSmallPartsPrice($applicationId);
+            $hasLastName = Schema::hasColumn('users', 'last_name');
+            $hasPatronymic = Schema::hasColumn('users', 'patronymic');
+
+            $userSelect = 'id,name';
+            if ($hasLastName)
+                $userSelect .= ',last_name';
+            if ($hasPatronymic)
+                $userSelect .= ',patronymic';
 
             return response()->json([
                 'message' => 'Позиция добавлена',
-                'data' => $part->load('creator:id,name'),
+                'data' => $part->load("creator:{$userSelect}"),
                 'updated_small_part' => $updatedSmallPart,
             ], 201);
         } catch (\Throwable $e) {
@@ -279,15 +296,17 @@ class SparePartController extends Controller
             $part->{$dbField} = $newValue;
 
             // Обновление автора: только если строка ручная и не мелкие детали
-            $isManual = (bool) ($part->is_manual ?? false)
-                || !empty($part->created_by_user_id)
-                || ((int) ($part->author_type ?? 0) !== 0);
+            // Обновление автора: ТОЛЬКО если строка изначально создана вручную и не авто (author_type !== 0)
+            $wasInitiallyAuto = ((int) ($part->author_type ?? 0) === 0) || !($part->is_manual ?? false);
 
-            if ($isManual && !($part->is_small_parts ?? false) && in_array('author_type', $columns)) {
+            if (!$wasInitiallyAuto && !($part->is_small_parts ?? false) && in_array('author_type', $columns)) {
                 $newAuthorType = $this->resolveAuthorType($user, $app);
                 if ($newAuthorType > 0) {
                     $part->author_type = $newAuthorType;
                 }
+            } elseif ($wasInitiallyAuto && in_array('author_type', $columns)) {
+                // Жестко фиксируем: авто-строка всегда остается белой (0)
+                $part->author_type = 0;
             }
 
             if (in_array('updated_by_user_id', $columns)) {
@@ -352,15 +371,19 @@ class SparePartController extends Controller
             $user = Auth::user();
             $app = Application::find($applicationId);
 
-            $isManual = (bool) ($part->is_manual ?? false)
-                || !empty($part->created_by_user_id)
-                || ((int) ($part->author_type ?? 0) !== 0);
 
-            if ($isManual && !($part->is_small_parts ?? false) && in_array('author_type', $columns)) {
+
+            // Обновление автора: ТОЛЬКО если строка изначально создана вручную и не авто (author_type !== 0)
+            $wasInitiallyAuto = ((int) ($part->author_type ?? 0) === 0) || !($part->is_manual ?? false);
+
+            if (!$wasInitiallyAuto && !($part->is_small_parts ?? false) && in_array('author_type', $columns)) {
                 $newAuthorType = $this->resolveAuthorType($user, $app);
                 if ($newAuthorType > 0) {
                     $part->author_type = $newAuthorType;
                 }
+            } elseif ($wasInitiallyAuto && in_array('author_type', $columns)) {
+                // Жестко фиксируем: авто-строка всегда остается белой (0)
+                $part->author_type = 0;
             }
 
             if (in_array('updated_by_user_id', $columns)) {

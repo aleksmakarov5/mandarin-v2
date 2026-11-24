@@ -1,7 +1,7 @@
 <template>
     <div class="application-card-layout d-flex flex-column h-100 bg-light">
-        <ApplicationCardHeader :application-id="applicationId" :application="cardData" :status="currentStatus"
-            :saving="saving" :show-save="canSaveActiveModule" @back="goBack" @save="saveActiveModule" />
+        <ApplicationCardHeader ref="headerRef" :application="application" :is-saving="isSaving" @back="goBackToRegistry"
+            @save="saveApplicationData" />
 
         <!-- Краткая сводка (Summary) со статусами и тайм-барами -->
         <!-- Краткая сводка (Summary) со статусами и тайм-барами -->

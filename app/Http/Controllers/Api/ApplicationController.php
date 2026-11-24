@@ -871,54 +871,86 @@ class ApplicationController extends Controller
     /**
      * Получение данных конкретного дела
      */
-    public function show(Request $request, int $id): JsonResponse
+    /**
+     * Получение данных дела для карточки
+     */
+    public function show(int $id): JsonResponse
     {
         try {
-            /** @var \App\Models\User|null $user */
-            $user = $request->user();
+            $application = \App\Models\Application::findOrFail($id);
 
-            $app = Application::with([
+            // Список желаемых связей
+            $possibleRelations = [
                 'status',
-                'insuranceCompany:id,name',
-                'ourCompany:id,name',
-                'service:id,name',
-                'city:id,name',
-                'mrk:id,name',
-                'spm:id,name',
-                'mentor:id,name',
-                'lawyer:id,name,phone,email',
-            ])->findOrFail($id);
+                'insuranceCompany',
+                'ourCompany',
+                'city',
+                'mrk',
+                'spm',
+                'partsManager',
+                'mentor',
+                'curator',
+                'lawyer',
+                'service',
+            ];
 
-            if ($user && method_exists($user, 'isSystemAdmin') && !$user->isSystemAdmin()) {
-                if (method_exists($user, 'isSto') && $user->isSto()) {
-                    $serviceId = method_exists($user, 'getServiceId') ? $user->getServiceId() : null;
-                    if (!$serviceId || (int) $app->id_service !== $serviceId) {
-                        return response()->json(['message' => 'Доступ к данному делу ограничен'], 403);
-                    }
+            // Загружаем только те связи, методы которых физически объявлены в модели Application
+            $relationsToLoad = [];
+            foreach ($possibleRelations as $rel) {
+                if (method_exists($application, $rel)) {
+                    $relationsToLoad[] = $rel;
                 }
             }
 
-            $finances = $this->calculateFinances($app);
+            if (!empty($relationsToLoad)) {
+                $application->load($relationsToLoad);
+            }
 
-            $data = array_merge($app->attributesToArray(), [
-                'status' => $app->status,
-                'insurance_company' => $app->insuranceCompany,
-                'our_company_rel' => $app->ourCompany,
-                'service' => $app->service,
-                'city' => $app->city,
-                'mrk' => $app->mrk,
-                'spm' => $app->spm,
-            ], $finances);
+            // Вычисляем финансы, если метод объявлен в контроллере
+            $finances = [];
+            if (method_exists($this, 'calculateFinances')) {
+                $finances = $this->calculateFinances($application);
+            } else {
+                $sumSk = (float) ($application->sum_sk ?? 0);
+                $sumZap = (float) ($application->sum_zap ?? 0);
+                $remontSum = (float) ($application->remont_sum ?? 0);
+                $totalCosts = $sumZap + $remontSum;
+                $remains = $sumSk - $totalCosts;
+
+                $finances = [
+                    'total_calculated_costs' => $totalCosts,
+                    'calculated_remains' => $remains,
+                    'calculated_margin' => $sumSk > 0 ? (int) round(($remains / $sumSk) * 100) : 0,
+                ];
+            }
+
+            $data = array_merge($application->toArray(), $finances);
+
+            // Гарантируем числовые идентификаторы внешних ключей для фронтенда
+            $data['our_company'] = (int) ($application->our_company ?? $application->our_company_id ?? $application->id_our_company ?? 0);
+            $data['id_status'] = (int) ($application->id_status ?? $application->status_id ?? 0);
+            $data['id_MRK'] = $application->id_MRK ? (int) $application->id_MRK : null;
+            $data['id_mentor'] = $application->id_mentor ?? $application->mentor_id ?? $application->id_curator ?? null;
+            if ($data['id_mentor'])
+                $data['id_mentor'] = (int) $data['id_mentor'];
+            $data['id_spm'] = $application->id_spm ?? $application->spm_id ?? $application->id_parts_manager ?? null;
+            if ($data['id_spm'])
+                $data['id_spm'] = (int) $data['id_spm'];
+            $data['id_lawyer'] = $application->id_lawyer ? (int) $application->id_lawyer : null;
 
             return response()->json([
+                'status' => 'ok',
                 'data' => $data,
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json(['message' => "Дело #{$id} не найдено"], 404);
         } catch (\Throwable $e) {
-            Log::error("Ошибка в ApplicationController::show({$id}): " . $e->getMessage());
+            \Illuminate\Support\Facades\Log::error("Ошибка в ApplicationController::show({$id}): " . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return response()->json([
-                'message' => 'Ошибка загрузки карточки дела: ' . $e->getMessage(),
+                'message' => 'Ошибка загрузки данных дела: ' . $e->getMessage(),
             ], 500);
         }
     }

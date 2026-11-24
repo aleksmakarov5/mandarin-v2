@@ -1,26 +1,66 @@
 <template>
-    <!-- mb-4 дает солидный комфортный отступ до следующего блока (Ремонт/Работы) -->
-    <div class="spare-parts-module-container mb-4" @click="onGlobalClick">
-
-        <!-- 1. ЗАГОЛОВОК-КНОПКА АККОРДЕОНА -->
-        <div class="section-header-row d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom">
+    <!-- КАРТОЧКА БЛОКА ЗАПЧАСТЕЙ -->
+    <div class="estimate-block-card bg-white border rounded shadow-xs overflow-hidden mb-3" @click="onGlobalClick">
+        <div class="card-accordion-header px-3 py-2 d-flex justify-content-between align-items-center cursor-pointer select-none"
+            @click="isPartsCollapsed = !isPartsCollapsed">
+            <!-- Левая часть: квадратная иконка + Заголовок + счётчик + шеврон -->
             <div class="d-flex align-items-center gap-2 cursor-pointer select-none accordion-toggle-btn"
                 @click="toggleCollapse" role="button" tabindex="0"
                 title="Нажмите, чтобы скрыть или показать таблицу запчастей">
-                <div class="section-icon-box">
+                <div class="section-icon-box  icon-parts">
                     <i class="bi bi-box-seam-fill"></i>
                 </div>
-                <h6 class="section-title m-0 fw-bold text-dark d-flex align-items-center gap-1.5">
-                    <span>Запчасти</span>
-                    <span class="text-muted fw-normal fs-7">({{ parts.length }})</span>
+                <h6 class="m-0 fw-bold text-dark d-flex align-items-center gap-1.5 section-title-text">
+                    <span>Запасные части</span>
+                    <span class="text-secondary fw-normal count-text">({{ parts.length }})</span>
                     <!-- Стрелочка индикатора раскрытия/сворачивания -->
                     <i class="bi bi-chevron-down accordion-arrow ms-1 text-secondary"
                         :class="{ 'accordion-arrow-rotated': isCollapsed }"></i>
                 </h6>
             </div>
 
-            <!-- Кнопки справа -->
-            <div class="d-flex align-items-center gap-2">
+            <!-- Правая часть: бейджи сумм СК/ПЗН + Загрузить + История -->
+            <div class="d-flex align-items-center gap-2" @click.stop>
+                <!-- 2. ПЛАШКИ СУММ НАД ТАБЛИЦЕЙ -->
+                <div class="sum-summary-bar d-flex align-items-center gap-2 mb-2 flex-wrap">
+                    <!-- Сумма СК (базовая для обоих режимов) -->
+                    <div class="summary-pill pill-sk d-flex align-items-center gap-2">
+                        <span class="pill-label">Сумма СК:</span>
+                        <span class="pill-value font-monospace fw-bold">{{ formatMoney(totalSumSk) }} ₽</span>
+                    </div>
+
+                    <!-- ДЛЯ КАСКО: СКИДКА СК И СУММА СО СКИДКОЙ -->
+                    <template v-if="isCasco">
+                        <div class="summary-pill pill-discount d-flex align-items-center gap-1.5 cursor-pointer"
+                            @click.stop="openDiscountModal" title="Нажмите, чтобы изменить процент скидки СК для сметы">
+                            <span class="pill-label">Скидка СК:</span>
+                            <span class="pill-value font-monospace fw-bold text-primary">{{ cascoDiscount }}%</span>
+                            <i class="bi bi-pencil-square ms-1 text-primary" style="font-size: 0.68rem;"></i>
+                        </div>
+
+                        <div class="summary-pill pill-casco-half d-flex align-items-center gap-2">
+                            <span class="pill-label">Цена со скидкой:</span>
+                            <span class="pill-value font-monospace fw-bold text-success">{{
+                                formatMoney(totalSumDiscounted)
+                                }} ₽</span>
+                        </div>
+                    </template>
+
+                    <!-- ДЛЯ ОСАГО: СУММА ПЗН И БЕЙДЖ РАЗНИЦЫ -->
+                    <template v-else>
+                        <div class="summary-pill pill-pzn d-flex align-items-center gap-2"
+                            :class="{ 'pill-pzn-diff': isTotalDiff }">
+                            <span class="pill-label">Сумма ПЗН:</span>
+                            <span class="pill-value font-monospace fw-bold">{{ formatMoney(totalSumPzn) }} ₽</span>
+                        </div>
+
+                        <div v-if="isTotalDiff" class="diff-badge font-monospace fw-bold"
+                            :class="totalSumPzn > totalSumSk ? 'diff-up' : 'diff-down'">
+                            {{ totalSumPzn > totalSumSk ? '+' : '' }}{{ formatMoney(totalSumPzn - totalSumSk) }} ₽
+                        </div>
+                    </template>
+                </div>
+
                 <button type="button"
                     class="btn btn-sm btn-outline-primary btn-upload-sm fw-semibold d-flex align-items-center shadow-xs"
                     @click="onUploadClick" title="Загрузить запчасти из файла калькуляции">
@@ -35,47 +75,12 @@
             </div>
         </div>
 
+
+
         <!-- ТЕЛО АККОРДЕОНА (ПЛАШКИ + ТАБЛИЦА + КНОПКИ ПОД НЕЙ) -->
         <div v-show="!isCollapsed" class="accordion-body-wrapper">
 
-            <!-- 2. ПЛАШКИ СУММ НАД ТАБЛИЦЕЙ -->
-            <div class="sum-summary-bar d-flex align-items-center gap-2 mb-2 flex-wrap">
-                <!-- Сумма СК (базовая для обоих режимов) -->
-                <div class="summary-pill pill-sk d-flex align-items-center gap-2">
-                    <span class="pill-label">Сумма СК:</span>
-                    <span class="pill-value font-monospace fw-bold">{{ formatMoney(totalSumSk) }} ₽</span>
-                </div>
 
-                <!-- ДЛЯ КАСКО: СКИДКА СК И СУММА СО СКИДКОЙ -->
-                <template v-if="isCasco">
-                    <div class="summary-pill pill-discount d-flex align-items-center gap-1.5 cursor-pointer"
-                        @click.stop="openDiscountModal" title="Нажмите, чтобы изменить процент скидки СК для сметы">
-                        <span class="pill-label">Скидка СК:</span>
-                        <span class="pill-value font-monospace fw-bold text-primary">{{ cascoDiscount }}%</span>
-                        <i class="bi bi-pencil-square ms-1 text-primary" style="font-size: 0.68rem;"></i>
-                    </div>
-
-                    <div class="summary-pill pill-casco-half d-flex align-items-center gap-2">
-                        <span class="pill-label">Цена со скидкой:</span>
-                        <span class="pill-value font-monospace fw-bold text-success">{{ formatMoney(totalSumDiscounted)
-                            }} ₽</span>
-                    </div>
-                </template>
-
-                <!-- ДЛЯ ОСАГО: СУММА ПЗН И БЕЙДЖ РАЗНИЦЫ -->
-                <template v-else>
-                    <div class="summary-pill pill-pzn d-flex align-items-center gap-2"
-                        :class="{ 'pill-pzn-diff': isTotalDiff }">
-                        <span class="pill-label">Сумма ПЗН:</span>
-                        <span class="pill-value font-monospace fw-bold">{{ formatMoney(totalSumPzn) }} ₽</span>
-                    </div>
-
-                    <div v-if="isTotalDiff" class="diff-badge font-monospace fw-bold"
-                        :class="totalSumPzn > totalSumSk ? 'diff-up' : 'diff-down'">
-                        {{ totalSumPzn > totalSumSk ? '+' : '' }}{{ formatMoney(totalSumPzn - totalSumSk) }} ₽
-                    </div>
-                </template>
-            </div>
 
             <!-- 3. ТАБЛИЦА: СТРОГО 100% ШИРИНЫ ДЕСКТОПА БЕЗ СКРОЛЛА -->
             <div class="table-desktop-fit-wrapper bg-white border rounded-1 shadow-xs">
@@ -381,7 +386,8 @@
                             <div class="d-flex align-items-center gap-2 overflow-hidden">
                                 <i class="bi bi-chat-left-text-fill text-primary fs-5"></i>
                                 <div class="text-truncate">
-                                    <div class="fw-bold small text-dark text-truncate">{{ activeChatPart.name }}</div>
+                                    <div class="fw-bold small text-dark text-truncate">{{ activeChatPart.name }}
+                                    </div>
                                     <div class="text-muted font-monospace" style="font-size: 0.68rem;">
                                         Кат. №: {{ activeChatPart.part_number || 'не указан' }}
                                     </div>
@@ -401,7 +407,8 @@
                                     <div
                                         class="chat-bubble-meta d-flex justify-content-between align-items-center gap-2 mb-1">
                                         <span class="chat-author fw-bold">
-                                            {{ comm.user ? (comm.user.last_name || comm.user.name) : 'Пользователь' }}
+                                            {{ comm.user ? (comm.user.last_name || comm.user.name) : 'Пользователь'
+                                            }}
                                         </span>
                                         <span class="chat-time text-muted font-monospace">
                                             {{ formatDateTime(comm.created_at) }}
@@ -431,9 +438,11 @@
             <Teleport to="body">
                 <div v-if="creatorTooltip.visible" class="floating-creator-tooltip shadow-lg"
                     :style="{ top: creatorTooltip.y + 'px', left: creatorTooltip.x + 'px' }">
-                    <div class="fw-bold mb-0.5"><i class="bi bi-person-fill me-1 text-warning"></i>Автор создания:</div>
+                    <div class="fw-bold mb-0.5"><i class="bi bi-person-fill me-1 text-warning"></i>Автор создания:
+                    </div>
                     <div>{{ creatorTooltip.author }}</div>
-                    <div class="text-muted font-monospace mt-0.5" style="font-size: 0.65rem;">{{ creatorTooltip.date }}
+                    <div class="text-muted font-monospace mt-0.5" style="font-size: 0.65rem;">{{ creatorTooltip.date
+                    }}
                     </div>
                 </div>
             </Teleport>
@@ -470,7 +479,8 @@
                                 </thead>
                                 <tbody>
                                     <tr v-for="h in historyList" :key="h.id" class="small">
-                                        <td class="font-monospace text-nowrap">{{ formatDateTime(h.created_at) }}</td>
+                                        <td class="font-monospace text-nowrap">{{ formatDateTime(h.created_at) }}
+                                        </td>
                                         <td class="fw-semibold">
                                             {{ h.user ? (h.user.last_name || h.user.name) : 'Система' }}
                                         </td>
@@ -514,7 +524,8 @@
                             </div>
 
                             <div class="mb-3">
-                                <label class="form-label small fw-bold mb-1 text-dark">Процент увеличения (%):</label>
+                                <label class="form-label small fw-bold mb-1 text-dark">Процент увеличения
+                                    (%):</label>
                                 <div class="input-group input-group-sm">
                                     <input ref="pznPercentInputRef" v-model="pznPercentValue" type="text"
                                         class="form-control font-monospace fw-bold fs-6 text-center"
@@ -570,7 +581,8 @@
                             </div>
 
                             <div class="mb-3">
-                                <label class="form-label small fw-bold mb-1 text-dark">Процент скидки СК (%):</label>
+                                <label class="form-label small fw-bold mb-1 text-dark">Процент скидки СК
+                                    (%):</label>
                                 <div class="input-group input-group-sm">
                                     <input ref="discountInputRef" v-model="tempDiscountValue" type="text"
                                         class="form-control font-monospace fw-bold fs-6 text-center"
@@ -1325,7 +1337,9 @@ const sendComment = async () => {
 const handleCreatorMouseEnter = (event, part) => {
     if (!isManualRow(part)) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const authorName = part.creator ? `${part.creator.last_name || ''} ${part.creator.name || ''}`.trim() : 'Сотрудник';
+    const authorName = part.creator
+        ? [part.creator.last_name, part.creator.name, part.creator.patronymic].filter(Boolean).join(' ')
+        : '—';
     const createdDate = part.created_at ? formatDateTime(part.created_at) : '—';
 
     creatorTooltip.author = authorName || 'Сотрудник';
@@ -2511,5 +2525,10 @@ td.col-name [contenteditable] {
         width: 100% !important;
         min-width: 100% !important;
     }
+}
+
+.icon-parts {
+    background-color: #f97316;
+    color: #ffffff;
 }
 </style>

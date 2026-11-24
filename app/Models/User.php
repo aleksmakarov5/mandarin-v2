@@ -232,4 +232,38 @@ class User extends Authenticatable
 
         return $serviceId ? (int) $serviceId : null;
     }
+
+    /**
+     * Проверка: является ли пользователь запчастистом (СПМ)
+     */
+    public function isSpm(?int $branchId = null): bool
+    {
+        if ($this->isSystemAdmin()) {
+            return false;
+        }
+
+        // Проверяем роль 9 (СПМ) или 7 через связь с филиалом
+        if ($this->hasBranchRole([9], $branchId)) {
+            return true;
+        }
+
+        $groupId = (int) ($this->user_group_id ?? 0);
+        return in_array($groupId, [9], true);
+    }
+
+    /**
+     * Проверка: является ли пользователь МРК
+     */
+    public function isMrk(?int $branchId = null): bool
+    {
+        if ($this->isSystemAdmin()) {
+            return false;
+        }
+
+        if ($this->hasBranchRole(5, $branchId)) {
+            return true;
+        }
+
+        return (int) ($this->user_group_id ?? 0) === 5;
+    }
 }

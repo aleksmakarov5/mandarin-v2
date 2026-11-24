@@ -7,8 +7,8 @@
         </div>
 
         <template v-else-if="effectiveAppId">
-            <!-- 1. ВЕРХНИЙ KPI-БЛОК -->
-            <div class="row g-2 mb-3">
+            <!-- 1. ВЕРХНИЙ KPI-БЛОК (ВИДЯТ МРК И НАСТАВНИКИ; СТРОГО СКРЫТ ДЛЯ СТО) -->
+            <div v-if="!isSto" class="row g-2 mb-3">
                 <div class="col-6 col-lg-3">
                     <div class="card border-0 shadow-sm p-2.5 bg-white border-start border-4 border-primary">
                         <div class="text-muted small text-uppercase fw-semibold" style="font-size: 0.70rem;">Калькуляция
@@ -52,53 +52,137 @@
                 </div>
             </div>
 
-            <!-- 2. СЕКЦИЯ: ЗАПЧАСТИ (на всю ширину) -->
+            <!-- 2. СЕКЦИЯ: ЗАПЧАСТИ (на всю ширину; видят ВСЕ роли) -->
             <div class="mb-3">
                 <SparePartsTable :application-id="effectiveAppId"
                     :status-id="application?.id_status || application?.status_id" :application="application || {}"
-                    :current-tab="currentTab" @updated="onEstimateUpdated" />
+                    :current-tab="currentTab" :is-sto="isSto" @updated="onEstimateUpdated" />
             </div>
 
-            <!-- ДВУХКОЛОНОЧНЫЙ ГРИД ДЛЯ ПАРНЫХ ТАБЛИЦ -->
+            <!-- ГРИД ДЛЯ РАБОТ И ДОП. ЗАТРАТ -->
             <div class="row g-3">
-                <!-- ПАРА 1: Ремонтные работы (по калькуляции) — Окрасочные работы (по калькуляции) -->
-                <template v-if="!isService && !isSpm">
-                    <CalculationWorksSection v-if="!isService && !isSpm" :application-id="effectiveAppId"
-                        @updated="onEstimateUpdated" />
-                </template>
+                <!-- 1. КАЛЬКУЛЯЦИЯ СК (РЕМОНТ + ОКРАСКА) — СТРОГО СКРЫТА ДЛЯ СТО И СПМ -->
+                <div v-if="!isSto && !isSpm" class="col-12">
+                    <CalculationWorksSection :application-id="effectiveAppId" @updated="onEstimateUpdated" />
+                </div>
 
-                <!-- ПАРА 2: Плановые работы — Фактические работы -->
-                <template v-if="!isSpm">
-                    <div class="col-12 col-xl-6">
-                        <div class="card border-0 shadow-sm h-100 p-2 bg-white">
-                            <PlanWorksTable v-if="application && (application.id || route.params.id)"
-                                :application-id="Number(application.id || route.params.id)"
-                                :service-id="application.id_service || application.service_id"
-                                :application="application" :user-role="userRole" :current-user="currentUser"
-                                @updated="fetchApplication" />
+                <!-- 2. ПЛАНОВЫЕ РАБОТЫ — ВИДЯТ СТО, МРК, НАСТАВНИКИ (СКРЫТО ДЛЯ СПМ) -->
+                <div v-if="!isSpm" class="col-12 col-xl-6">
+                    <div class="card border-0 shadow-sm h-100 p-2 bg-white">
+                        <PlanWorksTable :application-id="effectiveAppId" :service-id="effectiveServiceId"
+                            :application="application || {}" :user-role="userRoleString" :current-user="currentUser"
+                            @updated="onEstimateUpdated" />
+                    </div>
+                </div>
+
+                <!-- 3. ФАКТИЧЕСКИЕ РАБОТЫ СТО — ВИДЯТ СТО, МРК, НАСТАВНИКИ (СКРЫТО ДЛЯ СПМ) -->
+                <div v-if="!isSpm" class="col-12 col-xl-6">
+                    <div class="card border-0 shadow-sm h-100 p-2 bg-white">
+                        <FactWorksTable :application-id="effectiveAppId" :service-id="effectiveServiceId"
+                            :application="application || {}" :user-role="userRoleString" :current-user="currentUser"
+                            @updated="onEstimateUpdated" />
+                    </div>
+                </div>
+
+                <!-- 4. ДОП. ЗАТРАТЫ — СТРОГО СКРЫТЫ ДЛЯ СТО И СПМ -->
+                <div v-if="!isSto && !isSpm" class="col-12 col-xl-6">
+                    <div class="card border-0 shadow-sm h-100 p-2 bg-white">
+                        <ExtraExpensesTable :application-id="effectiveAppId" @updated="onEstimateUpdated" />
+                    </div>
+                </div>
+
+                <!-- 5. ИТОГОВЫЕ ДАННЫЕ ИЗ КАЛЬКУЛЯЦИИ (АККОРДЕОН) — СТРОГО СКРЫТЫ ДЛЯ СТО И СПМ -->
+                <div v-if="!isSto && !isSpm" class="col-12 col-xl-6">
+                    <div class="card border-0 shadow-sm bg-white estimate-collapsible-card h-100">
+                        <div class="card-header bg-white border-0 py-2.5 px-3 d-flex justify-content-between align-items-center cursor-pointer user-select-none"
+                            @click="isSummaryOpen = !isSummaryOpen">
+                            <div class="d-flex align-items-center gap-2">
+                                <div
+                                    class="header-icon-box bg-dark text-white rounded d-flex align-items-center justify-content-center">
+                                    <i class="bi bi-calculator-fill" style="font-size: 0.85rem;"></i>
+                                </div>
+                                <div class="d-flex align-items-center gap-1.5">
+                                    <span class="fw-bold text-dark section-title">Итоговые данные из калькуляции</span>
+                                    <span class="text-secondary count-bracket">(7)</span>
+                                    <i class="bi bi-chevron-right chevron-toggle text-secondary ms-0.5"
+                                        :class="{ 'rotated': isSummaryOpen }"></i>
+                                </div>
+                            </div>
+
+                            <div class="d-flex align-items-center gap-2">
+                                <div
+                                    class="header-badge-black d-flex flex-column align-items-end justify-content-center px-2.5 py-1">
+                                    <span class="badge-label-small">Сумма СК:</span>
+                                    <span class="badge-val-big font-monospace">{{ formatMoney(totalSkSum) }} ₽</span>
+                                </div>
+
+                                <div class="header-badge-outlined d-flex flex-column align-items-end justify-content-center px-2.5 py-1"
+                                    :class="totalRemains >= 0 ? 'badge-profit-border' : 'badge-loss-border'">
+                                    <span class="badge-label-small">Маржа ({{ marginPercent }}%):</span>
+                                    <span class="badge-val-big font-monospace"
+                                        :class="totalRemains >= 0 ? 'text-success' : 'text-danger'">
+                                        {{ formatMoney(totalRemains) }} ₽
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-show="isSummaryOpen" class="card-body p-0 border-top">
+                            <div class="table-responsive">
+                                <table
+                                    class="table table-sm table-bordered mb-0 align-middle font-monospace summary-detail-table">
+                                    <tbody>
+                                        <tr>
+                                            <td class="text-muted fw-semibold ps-3">Калькуляция запчастей (СК)</td>
+                                            <td class="text-end fw-bold text-primary pe-3">{{ formatMoney(totalPartsSk)
+                                            }} ₽</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="text-muted fw-semibold ps-3">Калькуляция работ (Ремонт + Окраска
+                                                СК)</td>
+                                            <td class="text-end fw-bold text-primary pe-3">{{
+                                                formatMoney(totalWorksSkSum) }} ₽</td>
+                                        </tr>
+                                        <tr class="table-subtotal-row">
+                                            <td class="fw-bold text-dark ps-3">ИТОГО СОГЛАСОВАНО СК:</td>
+                                            <td class="text-end fw-bold text-primary pe-3 fs-6">{{
+                                                formatMoney(totalSkSum) }} ₽</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="text-muted fw-semibold ps-3">Закупка запчастей (выбрано/факт)
+                                            </td>
+                                            <td class="text-end fw-bold text-danger pe-3">-{{
+                                                formatMoney(totalPartsCost) }} ₽</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="text-muted fw-semibold ps-3">Затраты на ремонт и окраску (СТО)
+                                            </td>
+                                            <td class="text-end fw-bold text-danger pe-3">-{{
+                                                formatMoney(totalWorksCost) }} ₽</td>
+                                        </tr>
+                                        <tr>
+                                            <td class="text-muted fw-semibold ps-3">Дополнительные расходы</td>
+                                            <td class="text-end fw-bold text-danger pe-3">-{{
+                                                formatMoney(totalExpensesCost) }} ₽</td>
+                                        </tr>
+                                        <tr class="table-subtotal-row">
+                                            <td class="fw-bold text-dark ps-3">ИТОГО ЗАТРАТЫ:</td>
+                                            <td class="text-end fw-bold text-dark pe-3 fs-6">{{
+                                                formatMoney(totalActualCostWithExpenses) }} ₽</td>
+                                        </tr>
+                                        <tr :class="totalRemains >= 0 ? 'table-profit-row' : 'table-loss-row'">
+                                            <td class="fw-bold ps-3">ОСТАТОК / ПРИБЫЛЬ:</td>
+                                            <td class="text-end fw-bold pe-3 fs-6"
+                                                :class="totalRemains >= 0 ? 'text-success' : 'text-danger'">
+                                                {{ totalRemains >= 0 ? '+' : '' }}{{ formatMoney(totalRemains) }} ₽
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
-
-                    <div class="col-12 col-xl-6">
-                        <div class="card border-0 shadow-sm h-100 p-2 bg-white">
-                            <FactWorksTable v-if="!isSpm" :application-id="applicationId" :application="application"
-                                :service-id="application.id_service" @updated="onEstimateUpdated" />
-                        </div>
-                    </div>
-                </template>
-
-                <!-- ПАРА 3: Доп. затраты — Итоговые данные из калькуляции -->
-                <template v-if="!isService && !isSpm">
-                    <div class="col-12 col-xl-12">
-                        <div class="card border-0 shadow-sm h-100 p-2 bg-white">
-                            <ExtraExpensesTable :application-id="effectiveAppId" @updated="onEstimateUpdated" />
-                        </div>
-                    </div>
-
-                    <!-- Итоговые данные из калькуляции -->
-                    <!-- Итоговые данные из калькуляции (в едином стиле с Ремонтными / Окрасочными работами) -->
-
-                </template>
+                </div>
             </div>
         </template>
     </div>
@@ -130,9 +214,28 @@ const props = defineProps({
         default: 'requests',
     },
 });
-const isSummaryOpen = ref(false);
+
 const emit = defineEmits(['updated']);
 const route = useRoute();
+
+const isSummaryOpen = ref(false);
+const loading = ref(false);
+
+// Ответ бэкенда с ролями
+const estimateMeta = ref({
+    is_sto: false,
+    is_spm: false,
+    is_mrk: true,
+    role: 'mrk',
+    current_user: null,
+    service: null,
+});
+
+const spareParts = ref([]);
+const repairWorks = ref([]);
+const paintWorks = ref([]);
+const extraExpenses = ref([]);
+const summary = ref({ sum_sk: 0, sum_zap: 0, remont_sum: 0 });
 
 const effectiveAppId = computed(() => {
     return Number(
@@ -143,27 +246,18 @@ const effectiveAppId = computed(() => {
     );
 });
 
-const currentUserRole = computed(() => {
-    const user = window.Laravel?.user || {};
-    const gid = Number(user.GroupId || user.user_group_id || 0);
-
-    if (gid === 8 || user.is_service) return 'service';
-    if (gid === 9) return 'spm';
-    if (gid === 10) return 'mentor';
-    return 'mrk';
+const effectiveServiceId = computed(() => {
+    return props.application?.id_service || props.application?.service_id || estimateMeta.value?.service?.id || null;
 });
 
-const isService = computed(() => currentUserRole.value === 'service');
-const isSpm = computed(() => currentUserRole.value === 'spm');
+// РОЛИ: Читаем напрямую из ответа сервера
+const isSto = computed(() => Boolean(estimateMeta.value.is_sto));
+const isSpm = computed(() => Boolean(estimateMeta.value.is_spm));
+const isMrk = computed(() => Boolean(estimateMeta.value.is_mrk));
+const userRoleString = computed(() => String(estimateMeta.value.role || 'mrk'));
+const currentUser = computed(() => estimateMeta.value.current_user || null);
 
-const loading = ref(false);
-const spareParts = ref([]);
-const repairWorks = ref([]);
-const paintWorks = ref([]);
-const extraExpenses = ref([]);
-const summary = ref({ sum_sk: 0, sum_zap: 0, remont_sum: 0 });
-
-// Итоги
+// Итоги для расчетов
 const totalPartsSk = computed(() => {
     return spareParts.value.reduce((acc, p) => acc + ((p.price_sk || p.price_ic || 0) * (p.count || 1)), 0);
 });
@@ -199,6 +293,7 @@ const marginPercent = computed(() => {
     return Math.round((totalRemains.value / totalSkSum.value) * 100);
 });
 
+// Загрузка сметы и ролей с бэкенда
 const fetchEstimate = async () => {
     if (!effectiveAppId.value) return;
     loading.value = true;
@@ -208,10 +303,22 @@ const fetchEstimate = async () => {
             axios.get(`/api/applications/${effectiveAppId.value}/extra-expenses`).catch(() => ({ data: { data: [] } })),
         ]);
 
-        spareParts.value = estRes.data?.spare_parts || [];
-        repairWorks.value = estRes.data?.repair_works || [];
-        paintWorks.value = estRes.data?.paint_works || [];
-        summary.value = estRes.data?.summary || {};
+        if (estRes.data) {
+            estimateMeta.value = {
+                is_sto: Boolean(estRes.data.is_sto),
+                is_spm: Boolean(estRes.data.is_spm),
+                is_mrk: Boolean(estRes.data.is_mrk),
+                role: estRes.data.role || (estRes.data.is_sto ? 'service' : (estRes.data.is_spm ? 'spm' : 'mrk')),
+                current_user: estRes.data.current_user || null,
+                service: estRes.data.service || null,
+            };
+
+            spareParts.value = estRes.data.spare_parts || [];
+            repairWorks.value = estRes.data.repair_works || [];
+            paintWorks.value = estRes.data.paint_works || [];
+            summary.value = estRes.data.summary || {};
+        }
+
         extraExpenses.value = expRes.data?.data || [];
     } catch (err) {
         console.error('Ошибка загрузки данных сметы:', err);
@@ -277,7 +384,6 @@ onMounted(() => {
     transform: rotate(90deg);
 }
 
-/* Черный бэйдж с двумя строками текста (Сумма СК) */
 .header-badge-black {
     background-color: #1e293b;
     color: #ffffff;
@@ -286,7 +392,6 @@ onMounted(() => {
     line-height: 1.15;
 }
 
-/* Белый контурный бэйдж (Маржа) */
 .header-badge-outlined {
     background-color: #f8fafc;
     border: 1px solid #cbd5e1;
@@ -316,7 +421,6 @@ onMounted(() => {
     font-weight: 700;
 }
 
-/* Таблица внутри блока */
 .summary-detail-table td {
     padding: 6px 12px !important;
     font-size: 0.74rem;
