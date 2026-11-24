@@ -878,7 +878,10 @@ class ApplicationController extends Controller
     {
         try {
             $application = \App\Models\Application::findOrFail($id);
-
+            \Illuminate\Support\Facades\Gate::authorize(
+                'view',
+                $application
+            );
             // Список желаемых связей
             $possibleRelations = [
                 'status',
@@ -944,6 +947,10 @@ class ApplicationController extends Controller
             ]);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json(['message' => "Дело #{$id} не найдено"], 404);
+        } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+            return response()->json([
+                'message' => 'Нет доступа к этому делу.',
+            ], 403);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error("Ошибка в ApplicationController::show({$id}): " . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),

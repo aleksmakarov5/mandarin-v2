@@ -24,46 +24,74 @@ class ApplicationPolicy
     }
 
     /**
-     * Проверка доступа к просмотру дела
+     * Просмотр:
+     * - сотрудник имеет активную роль в филиале;
+     * - либо дело назначено автосервису пользователя.
+     *
+     * Дополнительная роль СТО не отменяет права сотрудника.
      */
-    public function view(User $user, Application $application): bool
-    {
+    public function view(
+        User $user,
+        Application $application
+    ): bool {
+        return $this->userHasAccessToBranch($user, $application)
+            || $this->applicationAssignedToOwnService(
+                $user,
+                $application
+            );
+    }
+
+    /**
+     * Сохраняем существующее правило для сотрудников.
+     * Само назначение автосервиса не даёт полной правки карточки.
+     */
+    public function update(
+        User $user,
+        Application $application
+    ): bool {
         return $this->userHasAccessToBranch($user, $application);
     }
 
     /**
-     * Проверка доступа к обновлению / редактированию дела
+     * Само назначение автосервиса не даёт права удаления.
+     *
+     * Отдельную матрицу прав удаления сотрудников
+     * эта правка не вводит.
      */
-    public function update(User $user, Application $application): bool
-    {
+    public function delete(
+        User $user,
+        Application $application
+    ): bool {
         return $this->userHasAccessToBranch($user, $application);
     }
 
     /**
-     * Проверка доступа к удалению дела
+     * Активное назначение сотрудника в филиале дела.
+     *
+     * Роль 8 — СТО — сама по себе не даёт доступ
+     * ко всем делам филиала.
      */
-    public function delete(User $user, Application $application): bool
-    {
-        return $this->userHasAccessToBranch($user, $application);
-    }
+    protected function userHasAccessToBranch(
+        User $user,
+        Application $application
+    ): bool {
+        $branchId = (int) (
+            $application->our_company
+            ?? $application->our_company_id
+            ?? $application->id_our_company
+            ?? 0
+        );
 
-    /**
-     * Служебный метод проверки: входит ли филиал дела в список доступных филиалов сотрудника
-     */
-    protected function userHasAccessToBranch(User $user, Application $application): bool
-    {
-        $appBranchId = (int) ($application->our_company ?? $application->our_company_id ?? $application->id_our_company);
-
-        // Если у дела вообще не указан филиал, доступ можно разрешить или ограничить по городам
-        if (!$appBranchId) {
+        if ($branchId <= 0) {
             return false;
         }
 
-        $availableBranches = method_exists($user, 'getAvailableBranchIds')
-            ? $user->getAvailableBranchIds()
-            : [];
-
-        return in_array($appBranchId, $availableBranches, true);
+        return $user->branchRoles()
+            ->where('our_company_id', $branchId)
+            ->where('is_active', true)
+            ->where('user_group_id', '<>', 8)
+            ->whereHas('role')
+            ->exists();
     }
 
     /**
@@ -138,5 +166,31 @@ class ApplicationPolicy
 
         return $branchId > 0
             && $user->hasBranchRole('owner', $branchId);
+    }
+    /**
+     * Проверяем фактическое назначение автосервиса делу.
+     *
+     * getServiceId() получает сервис, связанный с пользователем.
+     * Одной роли СТО недостаточно.
+     */
+    protected function applicationAssignedToOwnService(
+        User $user,
+        Application $application
+    ): bool {
+        $applicationServiceId = (int) (
+            $application->id_service
+            ?? $application->service_id
+            ?? 0
+        );
+
+        if ($applicationServiceId <= 0) {
+            return false;
+        }
+
+        $userServiceId = $user->getServiceId();
+
+        return $userServiceId !== null
+            && $userServiceId > 0
+            && $applicationServiceId === $userServiceId;
     }
 }

@@ -123,7 +123,10 @@ async function loadApplicationData() {
         console.error('Ошибка загрузки данных дела в ApplicationShow:', err);
 
         if (err.response?.status === 403) {
-            alert('Доступ запрещен: дело относится к другому филиалу.');
+            alert(
+                err.response?.data?.message
+                || 'Нет доступа к этому делу.'
+            );
             router.push('/requests'); // или router.push('/applications')
         } else if (err.response?.status === 404) {
             alert('Дело с таким номером не найдено.');

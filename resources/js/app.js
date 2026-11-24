@@ -15,19 +15,19 @@ import { maskPhoneDirective } from './directives/maskPhone';
 const app = createApp(App);
 const pinia = createPinia();
 
-axios.interceptors.response.use(
-    (response) => response,
-    (error) => {
-        if (error.response?.status === 403) {
-            // Если 403 пришел от роута конкретного дела
-            if (error.config?.url?.includes('/api/applications/')) {
-                alert('Доступ запрещен: дело относится к другому филиалу.');
-                router.push('/requests');
-            }
-        }
-        return Promise.reject(error);
-    }
-);
+// axios.interceptors.response.use(
+//     (response) => response,
+//     (error) => {
+//         if (error.response?.status === 403) {
+//             // Если 403 пришел от роута конкретного дела
+//             if (error.config?.url?.includes('/api/applications/')) {
+//                 alert('Доступ запрещен: дело относится к другому филиалу.');
+//                 router.push('/requests');
+//             }
+//         }
+//         return Promise.reject(error);
+//     }
+// );
 
 app.use(pinia);
 app.use(router);
