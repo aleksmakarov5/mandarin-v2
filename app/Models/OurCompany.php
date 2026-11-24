@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class OurCompany extends Model
 {
@@ -35,7 +36,7 @@ class OurCompany extends Model
 
     public function applications(): HasMany
     {
-        return $this->hasMany(Application::class, 'our_company_id');
+        return $this->hasMany(Application::class, 'our_company');
     }
     public function userRoles(): HasMany
     {

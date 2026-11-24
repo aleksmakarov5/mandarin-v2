@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Support\Facades\Schema;
 
 class Estimate extends Model
 {
@@ -27,6 +26,13 @@ class Estimate extends Model
         'add_pay',
         'price_repair_full_md2',
         'fact',
+        'paint_materials_approved',
+        'paint_materials_plan',
+        'ic_repair_sum',
+        'ic_defect_sum',
+        'dds_income_sum',
+        'dds_income_date',
+        'dds_sto_pay_date',
     ];
 
     protected $casts = [
@@ -41,14 +47,17 @@ class Estimate extends Model
         'add_pay' => 'float',
         'price_repair_full_md2' => 'float',
         'fact' => 'float',
+        'paint_materials_approved' => 'decimal:2',
+        'paint_materials_plan' => 'decimal:2',
+        'ic_repair_sum' => 'decimal:2',
+        'ic_defect_sum' => 'decimal:2',
+        'dds_income_sum' => 'decimal:2',
+        'dds_income_date' => 'date:Y-m-d',
+        'dds_sto_pay_date' => 'date:Y-m-d',
     ];
 
     public function application(): BelongsTo
     {
-        $foreignKey = Schema::hasColumn('estimates', 'application_id')
-            ? 'application_id'
-            : 'id_application';
-
-        return $this->belongsTo(Application::class, $foreignKey);
+        return $this->belongsTo(Application::class, 'application_id');
     }
 }

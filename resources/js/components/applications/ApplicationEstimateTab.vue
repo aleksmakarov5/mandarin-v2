@@ -7,50 +7,6 @@
         </div>
 
         <template v-else-if="effectiveAppId">
-            <!-- 1. ВЕРХНИЙ KPI-БЛОК (ВИДЯТ МРК И НАСТАВНИКИ; СТРОГО СКРЫТ ДЛЯ СТО) -->
-            <div v-if="!isSto" class="row g-2 mb-3">
-                <div class="col-6 col-lg-3">
-                    <div class="card border-0 shadow-sm p-2.5 bg-white border-start border-4 border-primary">
-                        <div class="text-muted small text-uppercase fw-semibold" style="font-size: 0.70rem;">Калькуляция
-                            СК</div>
-                        <div class="fs-5 fw-bold font-monospace text-primary">{{ formatMoney(totalSkSum) }} ₽</div>
-                        <div class="text-muted" style="font-size: 0.68rem;">Согласовано со страховой</div>
-                    </div>
-                </div>
-
-                <div class="col-6 col-lg-3">
-                    <div class="card border-0 shadow-sm p-2.5 bg-white border-start border-4 border-secondary">
-                        <div class="text-muted small text-uppercase fw-semibold" style="font-size: 0.70rem;">
-                            Себестоимость затрат</div>
-                        <div class="fs-5 fw-bold font-monospace text-dark">{{ formatMoney(totalActualCost) }} ₽</div>
-                        <div class="text-muted text-truncate" style="font-size: 0.68rem;">
-                            З/Ч ({{ formatMoney(totalPartsCost) }}) + Раб. ({{ formatMoney(totalWorksCost) }})
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-6 col-lg-3">
-                    <div class="card border-0 shadow-sm p-2.5 bg-white border-start border-4"
-                        :class="totalRemains >= 0 ? 'border-success' : 'border-danger'">
-                        <div class="text-muted small text-uppercase fw-semibold" style="font-size: 0.70rem;">
-                            Маржинальный доход</div>
-                        <div class="fs-5 fw-bold font-monospace"
-                            :class="totalRemains >= 0 ? 'text-success' : 'text-danger'">
-                            {{ formatMoney(totalRemains) }} ₽
-                        </div>
-                        <div class="text-muted" style="font-size: 0.68rem;">Остаток после закупки и ремонта</div>
-                    </div>
-                </div>
-
-                <div class="col-6 col-lg-3">
-                    <div class="card border-0 shadow-sm p-2.5 bg-white border-start border-4 border-warning">
-                        <div class="text-muted small text-uppercase fw-semibold" style="font-size: 0.70rem;">
-                            Рентабельность</div>
-                        <div class="fs-5 fw-bold font-monospace text-warning">{{ marginPercent }}%</div>
-                        <div class="text-muted" style="font-size: 0.68rem;">Прибыль от суммы СК</div>
-                    </div>
-                </div>
-            </div>
 
             <!-- 2. СЕКЦИЯ: ЗАПЧАСТИ (на всю ширину; видят ВСЕ роли) -->
             <div class="mb-3">
@@ -135,7 +91,7 @@
                                         <tr>
                                             <td class="text-muted fw-semibold ps-3">Калькуляция запчастей (СК)</td>
                                             <td class="text-end fw-bold text-primary pe-3">{{ formatMoney(totalPartsSk)
-                                            }} ₽</td>
+                                                }} ₽</td>
                                         </tr>
                                         <tr>
                                             <td class="text-muted fw-semibold ps-3">Калькуляция работ (Ремонт + Окраска

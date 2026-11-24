@@ -1,8 +1,6 @@
 <template>
     <div class="application-card-layout d-flex flex-column h-100 bg-light">
-        <ApplicationCardHeader ref="headerRef" :application="application" :is-saving="isSaving" @back="goBackToRegistry"
-            @save="saveApplicationData" />
-
+        <ApplicationCardHeader :application-id="applicationId" />
         <!-- Краткая сводка (Summary) со статусами и тайм-барами -->
         <!-- Краткая сводка (Summary) со статусами и тайм-барами -->
         <ApplicationCardSummary :application="cardData" :insurance-name="currentInsuranceName"

@@ -25,6 +25,11 @@ class InsuranceCompany extends Model
         'our_company_id',
         'legal_entity_id',
         'theme',
+        'split_ic_total',
+    ];
+
+    protected $casts = [
+        'split_ic_total' => 'boolean',
     ];
 
     public function applications(): HasMany

@@ -119,6 +119,59 @@
                                     <input v-model="form.address" type="text" class="form-control"
                                         placeholder="г. Москва, ул. Примерная, д. 1" />
                                 </div>
+                                <!-- Настройка согласованной суммы страховой компании -->
+                                <div class="col-12">
+                                    <div class="border rounded bg-light p-3">
+                                        <div class="form-check form-switch">
+                                            <input id="insurance-company-split-total" v-model="form.split_ic_total"
+                                                class="form-check-input" type="checkbox" role="switch"
+                                                :disabled="loading" :class="{ 'is-invalid': errors.split_ic_total }" />
+
+                                            <label class="form-check-label fw-semibold text-dark"
+                                                for="insurance-company-split-total">
+                                                Делить итоговую сумму
+                                            </label>
+                                        </div>
+
+                                        <div class="small text-muted mt-2">
+                                            При включении согласованная сумма СК рассчитывается
+                                            отдельно по ремонту и дефектовке.
+                                        </div>
+
+                                        <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                                            <template v-if="form.split_ic_total">
+                                                <span class="badge bg-white text-dark border">
+                                                    Ремонт
+                                                </span>
+
+                                                <span class="text-muted">+</span>
+
+                                                <span class="badge bg-white text-dark border">
+                                                    Дефектовка
+                                                </span>
+
+                                                <span class="text-muted">=</span>
+
+                                                <span class="badge bg-primary">
+                                                    Согласовано СК
+                                                </span>
+                                            </template>
+
+                                            <span v-else class="badge bg-white text-secondary border">
+                                                Единая согласованная сумма
+                                            </span>
+                                        </div>
+
+                                        <div v-if="errors.split_ic_total" class="small text-danger mt-2">
+                                            {{ errors.split_ic_total[0] }}
+                                        </div>
+
+                                        <div class="small text-muted mt-3">
+                                            Настройка применяется к делам этой страховой компании.
+                                            Уже введённые суммы автоматически не распределяются.
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -161,6 +214,7 @@ const initialForm = {
     phone: '',
     email: '',
     address: '',
+    split_ic_total: false,
 };
 
 const form = reactive({ ...initialForm });
@@ -189,6 +243,11 @@ const open = (item = null) => {
         form.phone = item.phone || '';
         form.email = item.email || '';
         form.address = item.address || '';
+        form.split_ic_total = [
+            true,
+            1,
+            '1',
+        ].includes(item.split_ic_total);
     } else {
         isEdit.value = false;
         editingId.value = null;

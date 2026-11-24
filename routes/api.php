@@ -167,24 +167,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/application-options', [\App\Http\Controllers\Api\StandardWorkController::class, 'getApplicationOptions']);
     });
 
-    // Калькуляция: ремонтные и окрасочные работы
-    Route::get('applications/{id}/calc-works', [\App\Http\Controllers\Api\EstimateWorksController::class, 'getCalcWorks']);
-    Route::post('applications/{id}/calc-works', [\App\Http\Controllers\Api\EstimateWorksController::class, 'storeCalcWork']);
-    Route::put('applications/{id}/calc-works/{workId}/field', [\App\Http\Controllers\Api\EstimateWorksController::class, 'updateCalcWorkField']);
-    Route::post('applications/{id}/calc-works/{workId}/toggle-category', [\App\Http\Controllers\Api\EstimateWorksController::class, 'toggleCategory']);
-    Route::delete('applications/{id}/calc-works/{workId}', [\App\Http\Controllers\Api\EstimateWorksController::class, 'destroyCalcWork']);
-
-    // Фактические работы СТО
-    Route::get('applications/{id}/fact-works', [\App\Http\Controllers\Api\EstimateWorksController::class, 'getFactWorks']);
-    Route::post('applications/{id}/fact-works', [\App\Http\Controllers\Api\EstimateWorksController::class, 'storeFactWork']);
-    Route::put('applications/{id}/fact-works/{workId}/field', [\App\Http\Controllers\Api\EstimateWorksController::class, 'updateFactWorkField']);
-    Route::delete('applications/{id}/fact-works/{workId}', [\App\Http\Controllers\Api\EstimateWorksController::class, 'destroyFactWork']);
-
-    // Дополнительные затраты
-    Route::get('applications/{id}/extra-expenses', [\App\Http\Controllers\Api\EstimateWorksController::class, 'getExtraExpenses']);
-    Route::post('applications/{id}/extra-expenses', [\App\Http\Controllers\Api\EstimateWorksController::class, 'storeExtraExpense']);
-    Route::put('applications/{id}/extra-expenses/{expenseId}/field', [\App\Http\Controllers\Api\EstimateWorksController::class, 'updateExtraExpenseField']);
-    Route::delete('applications/{id}/extra-expenses/{expenseId}', [\App\Http\Controllers\Api\EstimateWorksController::class, 'destroyExtraExpense']);
     // Маршруты для плановых работ дела
     Route::prefix('applications/{id}/plan-works')->group(function () {
         Route::get('/', [\App\Http\Controllers\Api\PlanWorkController::class, 'index']);
@@ -208,6 +190,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/{workId}', [\App\Http\Controllers\Api\FactWorkController::class, 'destroy']);
     });
 
+    Route::get(
+        'applications/{id}/finance/summary',
+        [
+            \App\Http\Controllers\Api\ApplicationFinanceController::class,
+            'summary',
+        ]
+    )->whereNumber('id');
+
     Route::prefix('applications/{id}/extra-expenses')->group(function () {
         Route::get('/', [\App\Http\Controllers\Api\ExtraExpenseController::class, 'index']);
         Route::post('/', [\App\Http\Controllers\Api\ExtraExpenseController::class, 'store']);
@@ -230,6 +220,44 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/application/{applicationId}', [\App\Http\Controllers\Api\EstimateController::class, 'showByApplication']);
         Route::post('/{id}/update', [\App\Http\Controllers\Api\EstimateController::class, 'update']);
     });
+    Route::patch(
+        'applications/{id}/finance/vat-mode',
+        [
+            \App\Http\Controllers\Api\ApplicationFinanceController::class,
+            'updateVatMode',
+        ]
+    )->whereNumber('id');
+    Route::patch(
+        'applications/{id}/finance/approved-sum',
+        [
+            \App\Http\Controllers\Api\ApplicationFinanceController::class,
+            'updateApprovedSum',
+        ]
+    )->whereNumber('id');
+
+    Route::patch(
+        'applications/{id}/finance/cash',
+        [
+            \App\Http\Controllers\Api\ApplicationFinanceController::class,
+            'updateDds',
+        ]
+    )->whereNumber('id');
+
+    Route::get(
+        'applications/{id}/finance/salary-rates',
+        [
+            \App\Http\Controllers\Api\ApplicationFinanceController::class,
+            'salaryRates',
+        ]
+    )->whereNumber('id');
+
+    Route::patch(
+        'applications/{id}/finance/salary-rates',
+        [
+            \App\Http\Controllers\Api\ApplicationFinanceController::class,
+            'updateZpPercentages',
+        ]
+    )->whereNumber('id');
     // Эндпоинт опций справочника работ для сметы
 
 });

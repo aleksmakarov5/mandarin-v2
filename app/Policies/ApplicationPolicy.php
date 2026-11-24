@@ -6,6 +6,7 @@ use App\Models\Application;
 use App\Models\User;
 use Illuminate\Auth\Access\HandlesAuthorization;
 
+
 class ApplicationPolicy
 {
     use HandlesAuthorization;
@@ -55,7 +56,7 @@ class ApplicationPolicy
 
         // Если у дела вообще не указан филиал, доступ можно разрешить или ограничить по городам
         if (!$appBranchId) {
-            return true;
+            return false;
         }
 
         $availableBranches = method_exists($user, 'getAvailableBranchIds')
@@ -63,5 +64,79 @@ class ApplicationPolicy
             : [];
 
         return in_array($appBranchId, $availableBranches, true);
+    }
+
+    /**
+     * Просмотр полной финансовой сводки.
+     *
+     * Права нескольких ролей объединяются:
+     * наличие СТО или СПМ не отменяет разрешение МРК,
+     * наставника, admin или owner в этом же филиале.
+     */
+    public function viewFinance(
+        \App\Models\User $user,
+        \App\Models\Application $application
+    ): bool {
+        $branchId = (int) $application->our_company;
+
+        if ($branchId <= 0) {
+            return false;
+        }
+
+        return $user->hasBranchRole(
+            [5, 6, 'admin', 'owner'],
+            $branchId
+        );
+    }
+
+    /**
+     * Изменение режима НДС конкретного дела.
+     *
+     * Системный администратор проходит через before().
+     * Остальные — по активной роли в филиале дела.
+     */
+    public function changeFinanceVat(
+        User $user,
+        Application $application
+    ): bool {
+        $branchId = (int) $application->our_company;
+
+        return $branchId > 0
+            && $user->hasBranchRole(
+                [5, 6, 'admin', 'owner'],
+                $branchId
+            );
+    }
+
+    public function changeFinanceApproved(
+        \App\Models\User $user,
+        \App\Models\Application $application
+    ): bool {
+        return $this->viewFinance($user, $application);
+    }
+
+    /**
+     * Только владелец в филиале дела.
+     *
+     * Системный администратор проходит через существующий before().
+     */
+    public function changeFinanceCash(
+        User $user,
+        Application $application
+    ): bool {
+        $branchId = (int) $application->our_company;
+
+        return $branchId > 0
+            && $user->hasBranchRole('owner', $branchId);
+    }
+
+    public function manageFinanceSalaryRates(
+        User $user,
+        Application $application
+    ): bool {
+        $branchId = (int) $application->our_company;
+
+        return $branchId > 0
+            && $user->hasBranchRole('owner', $branchId);
     }
 }

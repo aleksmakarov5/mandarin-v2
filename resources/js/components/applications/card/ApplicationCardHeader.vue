@@ -1,427 +1,342 @@
 <template>
-    <header class="card-header">
-        <!-- Стрелка назад и номер заявки -->
+    <header class="application-finance-header">
         <div class="header-identity">
-            <button type="button" class="icon-button back-button" title="Назад к реестру" aria-label="Назад к реестру"
-                @click="emit('back')">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M19 12H5" />
-                    <path d="m12 19-7-7 7-7" />
-                </svg>
+            <span class="identity-label">Дело</span>
+
+            <strong class="identity-number">
+                #{{ validApplicationId || '—' }}
+            </strong>
+        </div>
+
+        <ApplicationFinanceStrip v-if="canViewFinance && summary" :summary="summary"
+            :loading="loading || salaryRatesBusy" :approved-saving="approvedSaving" :approved-error="approvedError"
+            :vat-saving="vatSaving" :vat-error="vatError" :can-toggle-vat="canToggleVat"
+            :vat-button-title="vatButtonTitle" :cash-saving="cashSaving" :cash-error="cashError" :save-cash="saveCash"
+            @toggle-vat="toggleVatMode" @save-approved="saveApproved" />
+
+        <div v-if="canViewFinance" class="header-actions">
+            <button v-if="canManageSalaryRates" type="button" class="salary-rates-button"
+                title="Настроить проценты сотрудников по делу" :disabled="loading
+                    || vatSaving
+                    || approvedSaving
+                    || cashSaving
+                    || salaryRatesBusy
+                    " @click="showSalaryRates = true">
+                % сотрудников
             </button>
 
-            <div class="application-number">
-                <span>Заявка</span>
-                <strong>№ {{ displayedNumber }}</strong>
-            </div>
-        </div>
-
-        <!-- Финансовая информация -->
-        <div class="finance-scroll" role="region" aria-label="Финансовые показатели заявки" tabindex="0">
-            <div v-for="item in financialItems" :key="item.key" class="finance-item" :class="{
-                'finance-item--positive': item.color === 'positive',
-                'finance-item--negative': item.color === 'negative',
-            }">
-                <span class="finance-label">{{ item.label }}</span>
-                <span class="finance-value">{{ formatMoney(item.value) }}</span>
-            </div>
-        </div>
-
-        <!-- Пересчёт и сохранение активного модуля -->
-        <div class="header-actions">
-            <button type="button" class="icon-button recalculate-button" :disabled="loading || !hasApplicationId"
-                :aria-busy="loading" title="Пересчитать финансовые показатели"
-                aria-label="Пересчитать финансовые показатели" @click="loadFinancialSummary">
-                <svg :class="{ spinning: loading }" width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                    aria-hidden="true">
+            <button type="button" class="refresh-button" :disabled="loading
+                || vatSaving
+                || approvedSaving
+                || cashSaving
+                || salaryRatesBusy
+                || !validApplicationId
+                " :aria-busy="loading" :title="refreshTitle" aria-label="Пересчитать финансовые показатели"
+                @click="loadSummary">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" :class="{ rotating: loading }" aria-hidden="true">
                     <path d="M20 7v5h-5" />
                     <path d="M4 17v-5h5" />
-                    <path d="M5.5 9A7 7 0 0 1 18 6l2 6" />
-                    <path d="M18.5 15A7 7 0 0 1 6 18l-2-6" />
+                    <path d="M6 7a7 7 0 0 1 12-1l2 3" />
+                    <path d="M18 17a7 7 0 0 1-12 1l-2-3" />
                 </svg>
             </button>
 
-            <button v-if="showSave" type="button" class="icon-button save-button" :disabled="saving" :aria-busy="saving"
-                :title="saving ? 'Сохранение…' : 'Сохранить'" :aria-label="saving ? 'Сохранение' : 'Сохранить'"
-                @click="emit('save')">
-                <svg v-if="saving" class="spinning" width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="9" opacity="0.25" />
-                    <path d="M12 3a9 9 0 0 1 9 9" />
-                </svg>
+            <span class="refresh-caption">
+                {{ loading ? 'Расчёт…' : updatedAtLabel }}
+            </span>
+        </div>
 
-                <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
-                    <path d="M17 21v-8H7v8" />
-                    <path d="M7 3v5h8" />
-                </svg>
+        <div v-if="loading && !summary" class="header-status" role="status">
+            Загрузка…
+        </div>
+
+        <div v-if="errorMessage" class="header-message error-message" role="alert">
+            {{ errorMessage }}
+
+            <span v-if="canViewFinance && summary">
+                Показаны данные предыдущего успешного расчёта.
+            </span>
+
+            <button v-if="
+                !loading
+                && !vatSaving
+                && !approvedSaving
+                && !cashSaving
+                && !salaryRatesBusy
+                && validApplicationId
+            " type="button" class="retry-button" @click="loadSummary">
+                Повторить
             </button>
         </div>
 
-        <div v-if="errorMessage" class="header-error" role="alert">
-            {{ errorMessage }}
+        <div v-if="canViewFinance && warnings.length" class="header-message warning-message" role="status">
+            {{ warnings.join(' · ') }}
         </div>
     </header>
+
+    <FinanceSalaryRatesModal v-if="canManageSalaryRates" v-model="showSalaryRates" :application-id="applicationId"
+        @busy-change="salaryRatesBusy = $event" @saved="onSalaryRatesSaved" />
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
-import axios from 'axios';
+import { computed, ref, watch } from 'vue';
+
+import ApplicationFinanceStrip from './finance/ApplicationFinanceStrip.vue';
+import FinanceSalaryRatesModal from './finance/FinanceSalaryRatesModal.vue';
+import { useApplicationFinance } from './finance/useApplicationFinance';
+
+defineOptions({
+    inheritAttrs: false,
+});
 
 const props = defineProps({
     applicationId: {
         type: [Number, String],
-        default: null,
-    },
-    application: {
-        type: Object,
-        default: () => ({}),
-    },
-    // Оставляем для совместимости с ApplicationShow.
-    status: {
-        type: [Object, String, Number],
-        default: null,
-    },
-    saving: {
-        type: Boolean,
-        default: false,
-    },
-    showSave: {
-        type: Boolean,
-        default: false,
+        required: true,
     },
 });
 
-const emit = defineEmits(['back', 'save']);
+const showSalaryRates = ref(false);
+const salaryRatesBusy = ref(false);
 
-/*
- * ПРИМЕР контракта API — не утверждение о существующих полях.
- * После знакомства с backend заменим ключи на реальные.
- */
-const FINANCIAL_FIELDS = [
-    { key: 'approved_total', label: 'Одобрено СК' },
-    { key: 'approved_difference', label: 'Разница одобр.' },
-    { key: 'planned_total', label: 'Сумма план' },
-    { key: 'planned_difference', label: 'Разница план' },
-    { key: 'planned_expenses', label: 'Расходы план' },
-    { key: 'actual_expenses', label: 'Расходы факт' },
-    { key: 'cash_balance', label: 'ДДС' },
-    { key: 'salary', label: 'ЗП' },
-];
+const {
+    summary,
+    warnings,
+    loading,
+    errorMessage,
 
-const DIFFERENCE_FIELDS = new Set([
-    'approved_difference',
-    'planned_difference',
-    'cash_balance',
-]);
+    validApplicationId,
+    canViewFinance,
 
-const summary = ref(null);
-const loading = ref(false);
-const errorMessage = ref('');
+    vatSaving,
+    vatError,
+    canToggleVat,
+    vatButtonTitle,
 
-let requestController = null;
-let requestVersion = 0;
+    approvedSaving,
+    approvedError,
 
-const hasApplicationId = computed(() => {
-    return props.applicationId !== null
-        && props.applicationId !== undefined
-        && String(props.applicationId).trim() !== '';
+    cashSaving,
+    cashError,
+
+    updatedAtLabel,
+    refreshTitle,
+
+    loadSummary,
+    toggleVatMode,
+    saveApproved,
+    saveCash,
+} = useApplicationFinance(() => props.applicationId);
+
+const canManageSalaryRates = computed(() => {
+    return summary.value?.permissions?.manage_salary_rates === true;
 });
 
-const displayedNumber = computed(() => {
-    return props.application?.number
-        ?? props.application?.app_number
-        ?? props.applicationId
-        ?? '—';
-});
-
-function asNumber(value) {
-    if (value === null || value === undefined || value === '') {
-        return null;
-    }
-
-    const number = Number(value);
-    return Number.isFinite(number) ? number : null;
-}
-
-const financialItems = computed(() => {
-    return FINANCIAL_FIELDS.map((field) => {
-        const value = asNumber(summary.value?.[field.key]);
-
-        let color = null;
-        if (value !== null && DIFFERENCE_FIELDS.has(field.key)) {
-            color = value < 0 ? 'negative' : 'positive';
-        }
-
-        return {
-            ...field,
-            value,
-            color,
-        };
-    });
-});
-
-const moneyFormatter = new Intl.NumberFormat('ru-RU', {
-    style: 'currency',
-    currency: 'RUB',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-});
-
-function formatMoney(value) {
-    return value === null ? '—' : moneyFormatter.format(value);
-}
-
-/*
- * Пример URL. Заменить на реальный маршрут финансовой сводки.
- * Ожидается объект с полями FINANCIAL_FIELDS — непосредственно
- * в ответе либо внутри response.data.data.
- */
-async function loadFinancialSummary() {
-    if (!hasApplicationId.value || loading.value) {
+function onSalaryRatesSaved(applicationId) {
+    if (
+        Number(applicationId)
+        !== Number(props.applicationId)
+    ) {
         return;
     }
 
-    const applicationId = props.applicationId;
-    const version = ++requestVersion;
-
-    requestController = new AbortController();
-    loading.value = true;
-    errorMessage.value = '';
-
-    try {
-        const response = await axios.get(
-            `/api/applications/${encodeURIComponent(applicationId)}/financial-summary`,
-            { signal: requestController.signal }
-        );
-
-        if (version !== requestVersion) {
-            return;
-        }
-
-        const data = response.data?.data ?? response.data;
-
-        if (!data || typeof data !== 'object' || Array.isArray(data)) {
-            throw new Error('Некорректный ответ финансовой сводки');
-        }
-
-        summary.value = data;
-    } catch (error) {
-        if (version !== requestVersion) {
-            return;
-        }
-
-        if (error.code !== 'ERR_CANCELED') {
-            console.error('Не удалось обновить финансовую сводку:', error);
-            errorMessage.value = 'Не удалось обновить показатели. Попробуйте ещё раз.';
-        }
-    } finally {
-        if (version === requestVersion) {
-            loading.value = false;
-            requestController = null;
-        }
-    }
+    loadSummary();
 }
 
-/*
- * Загрузка при открытии или смене заявки.
- * Изменения внутри сметы автоматически запрос не запускают.
- */
 watch(
     () => props.applicationId,
     () => {
-        requestVersion += 1;
-        requestController?.abort();
-        requestController = null;
-
-        summary.value = null;
-        loading.value = false;
-        errorMessage.value = '';
-
-        if (hasApplicationId.value) {
-            loadFinancialSummary();
-        }
-    },
-    { immediate: true }
+        showSalaryRates.value = false;
+        salaryRatesBusy.value = false;
+    }
 );
 
-onBeforeUnmount(() => {
-    requestVersion += 1;
-    requestController?.abort();
-});
+watch(
+    canManageSalaryRates,
+    (allowed) => {
+        if (!allowed) {
+            showSalaryRates.value = false;
+        }
+    }
+);
 </script>
 
 <style scoped>
-.card-header {
+.application-finance-header {
     display: flex;
-    align-items: center;
     flex-wrap: wrap;
-    gap: 8px;
-    min-width: 0;
-    min-height: 54px;
-    padding: 6px 12px;
-    background: #fff;
-    border-bottom: 1px solid #e2e8f0;
-    box-shadow: 0 1px 3px rgb(15 23 42 / 5%);
-}
-
-.header-identity,
-.header-actions {
-    display: flex;
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
+    width: 100%;
+    min-width: 0;
+    padding: 7px 10px;
+    box-sizing: border-box;
+    background: #ffffff;
+    border-bottom: 1px solid #dbe4ee;
 }
 
-.application-number {
+.header-identity {
     display: flex;
+    flex: 0 0 auto;
     flex-direction: column;
-    line-height: 1.15;
-    white-space: nowrap;
+    min-width: 62px;
+    padding-right: 10px;
 }
 
-.application-number span {
+.identity-label {
     color: #64748b;
     font-size: 10px;
-    font-weight: 600;
+    line-height: 1.2;
 }
 
-.application-number strong {
+.identity-number {
     color: #0f172a;
-    font-size: 14px;
+    font-size: 16px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
 }
 
-.icon-button {
-    display: inline-flex;
+.header-actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    border: 1px solid #cbd5e1;
-    border-radius: 7px;
-    background: #fff;
-    color: #475569;
+    gap: 3px;
+    min-width: 52px;
+}
+
+.salary-rates-button {
+    padding: 5px 8px;
+    border: 1px solid #bae6fd;
+    border-radius: 5px;
+    background: #f0f9ff;
+    color: #0369a1;
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
     cursor: pointer;
 }
 
-.icon-button:hover:not(:disabled) {
-    background: #f1f5f9;
-    color: #0f172a;
+.salary-rates-button:hover:not(:disabled) {
+    background: #e0f2fe;
+    border-color: #38bdf8;
 }
 
-.icon-button:focus-visible,
-.finance-scroll:focus-visible {
-    outline: 2px solid #f97316;
-    outline-offset: 2px;
-}
-
-.icon-button:disabled {
+.salary-rates-button:disabled {
     opacity: 0.55;
     cursor: not-allowed;
 }
 
-.save-button {
-    border-color: #ea580c;
-    background: #ea580c;
-    color: #fff;
-}
-
-.save-button:hover:not(:disabled) {
-    border-color: #c2410c;
-    background: #c2410c;
-    color: #fff;
-}
-
-.finance-scroll {
-    display: flex;
-    flex: 1 1 0;
-    align-items: stretch;
-    gap: 5px;
-    min-width: 0;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    -webkit-overflow-scrolling: touch;
-}
-
-.finance-item {
-    display: flex;
-    flex: 0 0 auto;
-    flex-direction: column;
+.refresh-button {
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
-    gap: 2px;
-    min-width: 105px;
-    padding: 4px 8px;
-    border: 1px solid #e2e8f0;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid #cbd5e1;
     border-radius: 6px;
-    background: #f8fafc;
+    background: #ffffff;
+    color: #475569;
+    cursor: pointer;
 }
 
-.finance-label {
+.refresh-button:hover:not(:disabled) {
+    background: #f0f9ff;
+    border-color: #7dd3fc;
+    color: #0369a1;
+}
+
+.refresh-button:focus-visible,
+.salary-rates-button:focus-visible,
+.retry-button:focus-visible {
+    outline: 2px solid #0284c7;
+    outline-offset: 2px;
+}
+
+.refresh-button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.refresh-caption {
     color: #64748b;
-    font-size: 10px;
-    font-weight: 600;
+    font-size: 9px;
     white-space: nowrap;
 }
 
-.finance-value {
-    color: #0f172a;
-    font-size: 12px;
-    font-weight: 700;
-    white-space: nowrap;
+.header-status {
+    color: #64748b;
+    font-size: 11px;
 }
 
-.finance-item--positive .finance-value {
-    color: #15803d;
-}
-
-.finance-item--negative .finance-value {
-    color: #dc2626;
-}
-
-.header-error {
+.header-message {
     flex: 0 0 100%;
-    color: #b91c1c;
-    font-size: 12px;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 1.4;
 }
 
-.spinning {
-    animation: spin 0.8s linear infinite;
+.error-message {
+    color: #991b1b;
+    background: #fef2f2;
 }
 
-@keyframes spin {
+.warning-message {
+    color: #075985;
+    background: #f0f9ff;
+}
+
+.retry-button {
+    margin-left: 6px;
+    padding: 2px 5px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.rotating {
+    animation: finance-header-spin 0.8s linear infinite;
+}
+
+@keyframes finance-header-spin {
     to {
         transform: rotate(360deg);
     }
 }
 
-@media (max-width: 600px) {
-    .card-header {
-        padding: 6px 8px;
-    }
-
-    .icon-button {
-        width: 40px;
-        height: 40px;
-    }
-
-    .finance-scroll {
-        order: 3;
-        flex: 1 0 100%;
+@media (max-width: 640px) {
+    .application-finance-header {
+        gap: 6px;
+        padding: 7px 8px;
     }
 
     .header-actions {
+        flex-direction: row;
+        gap: 6px;
         margin-left: auto;
+    }
+
+    .refresh-button {
+        width: 44px;
+        height: 44px;
+    }
+
+    .salary-rates-button {
+        min-height: 44px;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .spinning {
-        animation-duration: 2s;
+    .rotating {
+        animation: none;
     }
 }
 </style>

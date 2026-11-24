@@ -32,6 +32,7 @@ class InsuranceCompanyController extends Controller
             'phone' => 'nullable|string|max:50',
             'email' => 'nullable|email|max:255',
             'address' => 'nullable|string|max:500',
+            'split_ic_total' => ['sometimes', 'boolean'],
         ]);
 
         $columns = Schema::getColumnListing('insurance_companies');
@@ -50,6 +51,14 @@ class InsuranceCompanyController extends Controller
             $data['email'] = $validated['email'] ?? null;
         if (in_array('address', $columns, true))
             $data['address'] = $validated['address'] ?? null;
+        // Настройка раздельной согласованной суммы.
+// Если поле не передано, сохраняется прежнее поведение создания.
+        if (
+            array_key_exists('split_ic_total', $validated)
+            && in_array('split_ic_total', $columns, true)
+        ) {
+            $data['split_ic_total'] = $validated['split_ic_total'];
+        }
 
         // Куратор / Менеджер (поддержка обоих вариантов)
         $curatorValue = $validated['curator'] ?? $validated['manager'] ?? null;
@@ -80,12 +89,21 @@ class InsuranceCompanyController extends Controller
             'phone' => 'nullable|string|max:50',
             'email' => 'nullable|email|max:255',
             'address' => 'nullable|string|max:500',
+            'split_ic_total' => ['sometimes', 'boolean'],
         ]);
 
         $columns = Schema::getColumnListing('insurance_companies');
         $data = [];
 
-        foreach (['name', 'bg_color', 'text_color', 'phone', 'email', 'address'] as $col) {
+        foreach ([
+            'name',
+            'bg_color',
+            'text_color',
+            'phone',
+            'email',
+            'address',
+            'split_ic_total',
+        ] as $col) {
             if (array_key_exists($col, $validated) && in_array($col, $columns, true)) {
                 $data[$col] = $validated[$col];
             }

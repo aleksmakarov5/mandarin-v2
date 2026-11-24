@@ -308,6 +308,13 @@
                                 <th>ИНН / КПП</th>
                                 <th>Руководитель</th>
                                 <th>Контакты</th>
+                                <th class="text-center" style="min-width: 110px;">
+                                    НДС
+                                </th>
+
+                                <th class="text-center" style="min-width: 140px;">
+                                    Налог на прибыль
+                                </th>
                                 <th class="text-end" style="width: 110px;">Действия</th>
                             </tr>
                         </thead>
@@ -329,6 +336,21 @@
                                     <div>{{ item.phone || '—' }}</div>
                                     <small class="text-muted">{{ item.email || '' }}</small>
                                 </td>
+                                <td class="text-center">
+                                    <span class="badge border" :class="item.nds_rate == null || item.nds_rate === ''
+                                        ? 'bg-light text-muted'
+                                        : 'bg-primary-subtle text-primary border-primary-subtle'">
+                                        {{ formatLegalEntityRate(item.nds_rate, true) }}
+                                    </span>
+                                </td>
+
+                                <td class="text-center">
+                                    <span class="badge border" :class="item.income_tax_rate == null || item.income_tax_rate === ''
+                                        ? 'bg-light text-muted'
+                                        : 'bg-success-subtle text-success border-success-subtle'">
+                                        {{ formatLegalEntityRate(item.income_tax_rate) }}
+                                    </span>
+                                </td>
                                 <td class="text-end">
                                     <div class="btn-group btn-group-sm">
                                         <button class="btn btn-light border" title="Редактировать"
@@ -343,7 +365,7 @@
                                 </td>
                             </tr>
                             <tr v-if="legalEntities.length === 0">
-                                <td colspan="6" class="text-center py-5 text-muted">Юридические лица еще не добавлены
+                                <td colspan="8" class="text-center py-5 text-muted">Юридические лица еще не добавлены
                                 </td>
                             </tr>
                         </tbody>
@@ -457,6 +479,9 @@
                                 <th>Куратор</th>
                                 <th>Контакты</th>
                                 <th>Адрес</th>
+                                <th style="min-width: 180px;">
+                                    Согласованная сумма
+                                </th>
                                 <th class="text-end" style="width: 110px;">Действия</th>
                             </tr>
                         </thead>
@@ -479,6 +504,16 @@
                                     <small class="text-muted">{{ comp.email || '' }}</small>
                                 </td>
                                 <td>{{ comp.address || '—' }}</td>
+                                <td>
+                                    <span class="badge border" :class="isSplitIcTotal(comp.split_ic_total)
+                                        ? 'bg-primary-subtle text-primary border-primary-subtle'
+                                        : 'bg-light text-secondary'">
+                                        {{ isSplitIcTotal(comp.split_ic_total)
+                                            ? 'Ремонт + дефектовка'
+                                            : 'Единая сумма'
+                                        }}
+                                    </span>
+                                </td>
                                 <td class="text-end">
                                     <div class="btn-group btn-group-sm">
                                         <button class="btn btn-light border" title="Редактировать тему и данные"
@@ -493,7 +528,7 @@
                                 </td>
                             </tr>
                             <tr v-if="companies.length === 0">
-                                <td colspan="7" class="text-center py-5 text-muted">Страховые компании еще не добавлены
+                                <td colspan="8" class="text-center py-5 text-muted">Страховые компании еще не добавлены
                                 </td>
                             </tr>
                         </tbody>
@@ -1136,6 +1171,36 @@ const setTab = (tab) => {
 
 const getLegalEntityName = (comp) => {
     return comp?.legal_entity?.name || 'Не привязано';
+};
+
+// Не используем Boolean(value):
+// строка '0' не должна означать включённый режим.
+const isSplitIcTotal = (value) => {
+    return value === true || value === 1 || value === '1';
+};
+
+const formatLegalEntityRate = (value, isVat = false) => {
+    if (
+        value === null
+        || value === undefined
+        || String(value).trim() === ''
+    ) {
+        return 'Не настроено';
+    }
+
+    const rate = Number(value);
+
+    if (!Number.isFinite(rate)) {
+        return 'Не настроено';
+    }
+
+    if (isVat && rate === 0) {
+        return 'Без НДС';
+    }
+
+    return `${rate.toLocaleString('ru-RU', {
+        maximumFractionDigits: 2,
+    })}%`;
 };
 
 // Текст для кнопки добавления в шапке

@@ -7,6 +7,7 @@ use Illuminate\Validation\Rules\Password;
 use Illuminate\Support\Facades\Gate;
 use App\Models\User;
 use App\Models\Application;
+use App\Policies\ApplicationPolicy;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -48,6 +49,7 @@ class AppServiceProvider extends ServiceProvider
             $branchId = $application ? (int) ($application->our_company ?? $application->our_company_id ?? 0) : null;
             return !$user->isSto($branchId);
         });
+        Gate::policy(Application::class, ApplicationPolicy::class);
         // Корпоративная политика паролей по умолчанию
         Password::defaults(function () {
             return Password::min(8)

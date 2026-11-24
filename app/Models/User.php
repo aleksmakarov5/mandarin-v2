@@ -128,17 +128,12 @@ class User extends Authenticatable
     /**
      * Проверка роли в конкретном филиале
      */
-    public function hasRoleInBranch(int $branchId, string $roleCode): bool
-    {
-        if ($this->isSystemAdmin()) {
-            return true;
-        }
-
-        return $this->branchRoles()
-            ->where('our_company_id', $branchId)
-            ->where('is_active', true)
-            ->whereHas('role', fn($q) => $q->where('code', $roleCode))
-            ->exists();
+    public function hasRoleInBranch(
+        int $branchId,
+        string $roleCode
+    ): bool {
+        return $this->isSystemAdmin()
+            || $this->hasBranchRole($roleCode, $branchId);
     }
 
     /**
@@ -161,30 +156,71 @@ class User extends Authenticatable
     {
         return $this->hasOne(Service::class, 'user_id');
     }
-    public function hasBranchRole($roles): bool
-    {
-        $roles = is_array($roles) ? $roles : func_get_args();
+    /**
+     * Проверка активных назначений ролей.
+     *
+     * $roles:
+     *   5, 6, 8, 9 — ID ролей;
+     *   'admin', 'owner', 'mrk' — коды ролей.
+     *
+     * При указанном филиале проверяем ТОЛЬКО его назначения.
+     * Без филиала ищем активное назначение в любом филиале.
+     *
+     * Основная группа пользователя не даёт доступ ко всем филиалам.
+     */
+    public function hasBranchRole(
+        int|string|array $roles,
+        ?int $branchId = null
+    ): bool {
+        $roles = is_array($roles) ? $roles : [$roles];
 
-        // 1. Проверка по прямому полю роли пользователя (если есть role/user_role)
-        $currentRole = $this->role ?? $this->user_role ?? null;
-        if ($currentRole && in_array($currentRole, $roles, true)) {
-            return true;
-        }
+        $roleIds = [];
+        $roleCodes = [];
 
-        // 2. Проверка через связанную группу пользователей
-        if ($this->relationLoaded('group') || $this->group) {
-            $groupCode = $this->group->code ?? $this->group->slug ?? $this->group->name ?? null;
-            if ($groupCode && in_array($groupCode, $roles, true)) {
-                return true;
+        foreach ($roles as $role) {
+            if (
+                is_int($role) || (
+                    is_string($role) && ctype_digit($role)
+                )
+            ) {
+                $roleIds[] = (int) $role;
+            } elseif (is_string($role) && trim($role) !== '') {
+                $roleCodes[] = trim($role);
             }
         }
 
-        // 3. Проверка через привязку к филиалу/СТО (если есть поле sto_id или branch_id)
-        if (in_array('sto', $roles, true) && (!empty($this->sto_id) || !empty($this->is_sto))) {
-            return true;
+        if ($roleIds === [] && $roleCodes === []) {
+            return false;
         }
 
-        return false;
+        if ($branchId !== null && $branchId <= 0) {
+            return false;
+        }
+
+        $query = $this->branchRoles()
+            ->where('is_active', true);
+
+        if ($branchId !== null) {
+            $query->where('our_company_id', $branchId);
+        }
+
+        return $query->where(function ($query) use ($roleIds, $roleCodes) {
+            if ($roleIds !== []) {
+                $query->whereIn('user_group_id', $roleIds);
+            }
+
+            if ($roleCodes !== []) {
+                $condition = function ($roleQuery) use ($roleCodes) {
+                    $roleQuery->whereIn('code', $roleCodes);
+                };
+
+                if ($roleIds !== []) {
+                    $query->orWhereHas('role', $condition);
+                } else {
+                    $query->whereHas('role', $condition);
+                }
+            }
+        })->exists();
     }
 
     public function isSto(?int $branchId = null): bool
@@ -238,17 +274,8 @@ class User extends Authenticatable
      */
     public function isSpm(?int $branchId = null): bool
     {
-        if ($this->isSystemAdmin()) {
-            return false;
-        }
-
-        // Проверяем роль 9 (СПМ) или 7 через связь с филиалом
-        if ($this->hasBranchRole([9], $branchId)) {
-            return true;
-        }
-
-        $groupId = (int) ($this->user_group_id ?? 0);
-        return in_array($groupId, [9], true);
+        return !$this->isSystemAdmin()
+            && $this->hasBranchRole(9, $branchId);
     }
 
     /**
@@ -256,14 +283,7 @@ class User extends Authenticatable
      */
     public function isMrk(?int $branchId = null): bool
     {
-        if ($this->isSystemAdmin()) {
-            return false;
-        }
-
-        if ($this->hasBranchRole(5, $branchId)) {
-            return true;
-        }
-
-        return (int) ($this->user_group_id ?? 0) === 5;
+        return !$this->isSystemAdmin()
+            && $this->hasBranchRole(5, $branchId);
     }
 }
