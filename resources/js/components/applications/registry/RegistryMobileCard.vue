@@ -59,24 +59,30 @@
                 <i class="bi ms-1" :class="isCopied ? 'bi-check2 text-success' : 'bi-copy text-muted'"></i>
             </div>
         </div>
+        Копировать код
+        <div v-if="canViewSensitiveData">
 
-        <!-- 3 СТРОКА: Клиент или Представитель -->
-        <div class="mob-client-row text-dark mb-1">
-            <i class="bi bi-person text-secondary me-1"></i>
-            <span class="fw-semibold mob-client-name text-uppercase">
-                <span v-if="isRepresentative" class="text-primary me-1 fw-bold">Представитель:</span>
-                {{ displayName }}
-            </span>
+            <!-- 3 СТРОКА: Клиент или Представитель -->
+            <div class="mob-client-row text-dark mb-1">
+                <i class="bi bi-person text-secondary me-1"></i>
+                <span class="fw-semibold mob-client-name text-uppercase">
+                    <span v-if="isRepresentative" class="text-primary me-1 fw-bold">Представитель:</span>
+                    {{ displayName }}
+                </span>
+            </div>
         </div>
+        Копировать код
+        <div v-if="canViewSensitiveData">
 
-        <!-- 4 СТРОКА: Номер телефона (кликабельный) -->
-        <div v-if="displayPhone" class="mob-phone-row mb-1">
-            <a :href="'tel:' + cleanPhone(displayPhone)"
-                class="mob-phone-link d-inline-flex align-items-center text-decoration-none text-primary fw-medium text-nowrap"
-                @click.stop>
-                <i class="bi bi-telephone-fill me-1 text-success" style="font-size: 0.70rem;"></i>
-                <span class="phone-text font-monospace">{{ displayPhone }}</span>
-            </a>
+            <!-- 4 СТРОКА: Номер телефона (кликабельный) -->
+            <div v-if="displayPhone" class="mob-phone-row mb-1">
+                <a :href="'tel:' + cleanPhone(displayPhone)"
+                    class="mob-phone-link d-inline-flex align-items-center text-decoration-none text-primary fw-medium text-nowrap"
+                    @click.stop>
+                    <i class="bi bi-telephone-fill me-1 text-success" style="font-size: 0.70rem;"></i>
+                    <span class="phone-text font-monospace">{{ displayPhone }}</span>
+                </a>
+            </div>
         </div>
 
         <!-- 5 СТРОКА: Юрист -->
@@ -117,7 +123,7 @@
             style="font-size: 0.70rem;">
             <span>Сумма СК: <strong>{{ formatMoney(item.sum_sk) }} р.</strong></span>
             <span class="text-success fw-bold">Остаток: {{ formatMoney(item.remains) }} ({{ item.remains_percent
-                }}%)</span>
+            }}%)</span>
         </div>
     </div>
 </template>
@@ -134,6 +140,10 @@ const props = defineProps({
     hasFinancialColumns: {
         type: Boolean,
         default: false,
+    },
+    canViewSensitiveData: {
+        type: Boolean,
+        default: true,
     },
 });
 

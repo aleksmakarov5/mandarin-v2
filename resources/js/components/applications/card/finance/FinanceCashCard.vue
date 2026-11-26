@@ -715,8 +715,8 @@ const tooltipRows = computed(() => {
 }
 
 .cash-card-expanded {
-    width: 325px;
-    min-width: 325px;
+    width: 315px;
+    min-width: 290px;
 }
 
 .cash-heading {

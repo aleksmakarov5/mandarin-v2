@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\Application;
 use App\Policies\ApplicationPolicy;
 
+
 class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
@@ -49,6 +50,35 @@ class AppServiceProvider extends ServiceProvider
             $branchId = $application ? (int) ($application->our_company ?? $application->our_company_id ?? 0) : null;
             return !$user->isSto($branchId);
         });
+        Gate::define(
+            'viewRegistryTab',
+            function (User $user, string $tab): bool {
+                if ($user->isSystemAdmin()) {
+                    return true;
+                }
+
+                return match ($tab) {
+                    'requests',
+                    'applications' => in_array(
+                            $user->menuMode(),
+                            ['backoffice', 'spm', 'service'],
+                            true
+                        ),
+
+                    'acceptance',
+                    'archive',
+                    'trash',
+                    'mail',
+                    'finance' => in_array(
+                            $user->menuMode(),
+                            ['backoffice'],
+                            true
+                        ),
+
+                    default => false,
+                };
+            }
+        );
         Gate::policy(Application::class, ApplicationPolicy::class);
         // Корпоративная политика паролей по умолчанию
         Password::defaults(function () {

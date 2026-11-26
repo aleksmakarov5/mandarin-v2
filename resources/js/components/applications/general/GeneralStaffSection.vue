@@ -5,72 +5,96 @@
                 Ответственные лица
             </h6>
 
-            <div class="mb-3">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                    <label class="form-label mb-0">Менеджер МРК</label>
+            <div v-if="readonly" class="readonly-grid">
+                <div class="readonly-field">
+                    <span>Менеджер МРК</span>
+                    <strong>{{ employeeName(staff.mrk, form.id_MRK) }}</strong>
                 </div>
 
-                <select v-model.number="form.id_MRK" class="form-select form-select-sm">
-                    <option :value="null">Не назначен</option>
-                    <option v-for="employee in staff.mrk" :key="employee.id" :value="Number(employee.id)">
-                        {{ employee.name }}
-                    </option>
-                </select>
-            </div>
-
-            <div class="mb-3">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                    <label class="form-label mb-0">Наставник</label>
+                <div class="readonly-field">
+                    <span>Наставник</span>
+                    <strong>{{ employeeName(staff.mentors, form.id_mentor) }}</strong>
                 </div>
 
-                <select v-model.number="form.id_mentor" class="form-select form-select-sm">
-                    <option :value="null">Без наставника</option>
-                    <option v-for="employee in staff.mentors" :key="employee.id" :value="Number(employee.id)">
-                        {{ employee.name }}
-                    </option>
-                </select>
-            </div>
-
-            <div class="mb-3">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                    <label class="form-label mb-0">Запчастист СПМ</label>
+                <div class="readonly-field">
+                    <span>Запчастист СПМ</span>
+                    <strong>{{ employeeName(staff.spm, form.id_spm) }}</strong>
                 </div>
 
-                <select v-model.number="form.id_spm" class="form-select form-select-sm">
-                    <option :value="null">Не назначен</option>
-                    <option v-for="employee in staff.spm" :key="employee.id" :value="Number(employee.id)">
-                        {{ employee.name }}
-                    </option>
-                </select>
+                <div class="readonly-field">
+                    <span>Юрист по делу</span>
+                    <strong>{{ lawyerName }}</strong>
+                </div>
             </div>
+            <div v-else>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label mb-0">Менеджер МРК</label>
+                    </div>
 
-            <hr />
-
-            <div class="mb-3">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                    <label class="form-label mb-0">Юрист по делу</label>
-                    <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none"
-                        @click="$emit('new-lawyer')">
-                        + Новый юрист
-                    </button>
+                    <select v-model.number="form.id_MRK" class="form-select form-select-sm">
+                        <option :value="null">Не назначен</option>
+                        <option v-for="employee in staff.mrk" :key="employee.id" :value="Number(employee.id)">
+                            {{ employee.name }}
+                        </option>
+                    </select>
                 </div>
 
-                <select id="application-lawyer" v-model.number="form.id_lawyer" class="form-select form-select-sm">
-                    <option :value="null">Без юриста</option>
-                    <option v-for="lawyer in lawyers" :key="lawyer.id" :value="Number(lawyer.id)"
-                        :style="{ color: lawyer.is_cooperating ? '#15803d' : '#dc2626' }">
-                        {{ lawyer.is_cooperating ? '●' : '○' }} {{ lawyer.name }}
-                    </option>
-                </select>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label mb-0">Наставник</label>
+                    </div>
+
+                    <select v-model.number="form.id_mentor" class="form-select form-select-sm">
+                        <option :value="null">Без наставника</option>
+                        <option v-for="employee in staff.mentors" :key="employee.id" :value="Number(employee.id)">
+                            {{ employee.name }}
+                        </option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label mb-0">Запчастист СПМ</label>
+                    </div>
+
+                    <select v-model.number="form.id_spm" class="form-select form-select-sm">
+                        <option :value="null">Не назначен</option>
+                        <option v-for="employee in staff.spm" :key="employee.id" :value="Number(employee.id)">
+                            {{ employee.name }}
+                        </option>
+                    </select>
+                </div>
+
+                <hr />
+
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label mb-0">Юрист по делу</label>
+                        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none"
+                            @click="$emit('new-lawyer')">
+                            + Новый юрист
+                        </button>
+                    </div>
+
+                    <select id="application-lawyer" v-model.number="form.id_lawyer" class="form-select form-select-sm">
+                        <option :value="null">Без юриста</option>
+                        <option v-for="lawyer in lawyers" :key="lawyer.id" :value="Number(lawyer.id)"
+                            :style="{ color: lawyer.is_cooperating ? '#15803d' : '#dc2626' }">
+                            {{ lawyer.is_cooperating ? '●' : '○' }} {{ lawyer.name }}
+                        </option>
+                    </select>
+
+                </div>
+
 
             </div>
-
-            <div>
+            <div v-if="showInternalNote && !readonly">
                 <h6 class="fw-bold mb-2 text-uppercase staff-title">
                     Заметка по делу
                 </h6>
 
-                <textarea v-model="form.comment_true" class="form-control form-control-sm" rows="7" maxlength="10000"
+                <textarea v-model="form.comment_true" class="form-control form-control-sm" rows="9" maxlength="10000"
                     placeholder="Внутренняя служебная заметка"></textarea>
             </div>
         </div>
@@ -78,7 +102,8 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue';
+const props = defineProps({
     form: {
         type: Object,
         required: true,
@@ -91,14 +116,40 @@ defineProps({
         type: Array,
         default: () => [],
     },
+    readonly: {
+        type: Boolean,
+        default: false,
+    },
+    showInternalNote: {
+        type: Boolean,
+        default: true,
+    },
 });
 
 const emit = defineEmits(['commit', 'new-lawyer']);
 
 function commit(event) {
+    if (props.readonly) return;
+
     if (['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target?.tagName)) {
         emit('commit');
     }
+}
+
+const lawyerName = computed(() => {
+    const lawyer = props.lawyers.find(
+        item => Number(item.id) === Number(props.form.id_lawyer)
+    );
+
+    return lawyer?.name || 'Без юриста';
+});
+
+function employeeName(list, id) {
+    const employee = (list || []).find(
+        item => Number(item.id) === Number(id)
+    );
+
+    return employee?.name || 'Не назначен';
 }
 </script>
 

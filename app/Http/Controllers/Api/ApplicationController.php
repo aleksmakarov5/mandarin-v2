@@ -15,6 +15,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Gate;
 
 class ApplicationController extends Controller
 {
@@ -37,422 +40,786 @@ class ApplicationController extends Controller
         try {
             /** @var \App\Models\User|null $user */
             $user = $request->user();
-            $tab = $request->input('tab', 'requests');
 
-            // Безопасно формируем список связей
+            if (!$user) {
+                return response()->json([
+                    'message' => 'Необходима авторизация.',
+                ], 401);
+            }
+
+            // Только реальные вкладки реестра из $this->tabs.
+            $validated = $request->validate([
+                'tab' => [
+                    'sometimes',
+                    'string',
+                    \Illuminate\Validation\Rule::in(
+                        array_keys($this->tabs)
+                    ),
+                ],
+                'per_page' => [
+                    'sometimes',
+                    'integer',
+                    'min:1',
+                    'max:200',
+                ],
+                'page' => [
+                    'sometimes',
+                    'integer',
+                    'min:1',
+                ],
+            ]);
+
+            $tab = $validated['tab'] ?? 'requests';
+            $perPage = (int) ($validated['per_page'] ?? 50);
+
+            // Разрешение открыть выбранную вкладку.
+            \Illuminate\Support\Facades\Gate::forUser($user)
+                ->authorize('viewRegistryTab', [$tab]);
+
+            /*
+             * Фильтры идентификаторов:
+             * поддерживаем массив и строку "1,2,3".
+             *
+             * Неправильные значения возвращают 422,
+             * а не незаметно отключают фильтр.
+             */
+            $parseIds = static function (string $field, bool $allowZero = false) use ($request): array {
+                if (!$request->filled($field)) {
+                    return [];
+                }
+
+                $raw = $request->input($field);
+
+                if (!is_array($raw) && !is_string($raw) && !is_int($raw)) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        $field => 'Ожидается массив идентификаторов или строка через запятую.',
+                    ]);
+                }
+
+                $values = is_array($raw)
+                    ? $raw
+                    : explode(',', (string) $raw);
+
+                $ids = [];
+
+                foreach ($values as $value) {
+                    if ($value === null || $value === '') {
+                        continue;
+                    }
+
+                    if (!is_string($value) && !is_int($value)) {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            $field => 'Идентификаторы должны быть целыми числами.',
+                        ]);
+                    }
+
+                    $value = trim((string) $value);
+
+                    if ($value === '') {
+                        continue;
+                    }
+
+                    $id = filter_var(
+                        $value,
+                        FILTER_VALIDATE_INT,
+                        [
+                            'options' => [
+                                'min_range' => $allowZero ? 0 : 1,
+                            ],
+                        ]
+                    );
+
+                    if ($id === false) {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            $field => 'Передан недопустимый идентификатор.',
+                        ]);
+                    }
+
+                    $ids[] = $id;
+                }
+
+                return array_values(array_unique($ids));
+            };
+
             $appInstance = new Application();
+            $appTable = $appInstance->getTable();
+            $appColumns = Schema::getColumnListing($appTable);
+
+            /*
+             * Определяем реально существующие внешние ключи.
+             * Если существует несколько вариантов одновременно,
+             * используется первый в указанном порядке.
+             */
+            $branchColumn = null;
+
+            foreach ([
+                'our_company',
+                'our_company_id',
+                'id_our_company',
+            ] as $column) {
+                if (in_array($column, $appColumns, true)) {
+                    $branchColumn = $column;
+                    break;
+                }
+            }
+
+            $serviceColumn = null;
+
+            foreach (['id_service', 'service_id'] as $column) {
+                if (in_array($column, $appColumns, true)) {
+                    $serviceColumn = $column;
+                    break;
+                }
+            }
+
+            $financeColumn = null;
+
+            foreach ([
+                'finance_status_id',
+                'id_finance_status',
+                'finance_statuses_id',
+            ] as $column) {
+                if (in_array($column, $appColumns, true)) {
+                    $financeColumn = $column;
+                    break;
+                }
+            }
+
+            // Связи: не запрашиваем необязательные колонки users.
             $withRelations = [];
 
-            if (method_exists($appInstance, 'status'))
-                $withRelations[] = 'status';
-            if (method_exists($appInstance, 'financeStatus'))
-                $withRelations[] = 'financeStatus';
-            if (method_exists($appInstance, 'finStatus'))
-                $withRelations[] = 'finStatus';
-            if (method_exists($appInstance, 'insuranceCompany'))
-                $withRelations[] = 'insuranceCompany:id,name';
-            if (method_exists($appInstance, 'ourCompany'))
-                $withRelations[] = 'ourCompany:id,name';
-            if (method_exists($appInstance, 'city'))
-                $withRelations[] = 'city:id,name';
-            if (method_exists($appInstance, 'mrk'))
-                $withRelations[] = 'mrk:id,name,last_name,patronymic';
-            if (method_exists($appInstance, 'spm'))
-                $withRelations[] = 'spm:id,name,last_name,patronymic';
-            if (method_exists($appInstance, 'mentor') && Schema::hasColumn('applications', 'id_mentor')) {
-                $withRelations[] = 'mentor:id,name';
-            }
-            if (method_exists($appInstance, 'lawyer') && Schema::hasTable('lawyers')) {
-                $withRelations[] = 'lawyer';
+            foreach ([
+                'status',
+                'financeStatus',
+                'finStatus',
+                'insuranceCompany',
+                'ourCompany',
+                'city',
+                'mrk',
+                'spm',
+                'service',
+            ] as $relation) {
+                if (method_exists($appInstance, $relation)) {
+                    $withRelations[] = $relation;
+                }
             }
 
-            // Связь с сервисом подгружаем без глобальных скоупов
-            if (method_exists($appInstance, 'service')) {
-                $withRelations['service'] = fn($q) => $q->withoutGlobalScopes();
+            if (
+                method_exists($appInstance, 'mentor')
+                && in_array('id_mentor', $appColumns, true)
+            ) {
+                $withRelations[] = 'mentor';
+            }
+
+            if (
+                method_exists($appInstance, 'lawyer')
+                && Schema::hasTable('lawyers')
+            ) {
+                $withRelations[] = 'lawyer';
             }
 
             $query = Application::query()->with($withRelations);
 
-            // 1. Фильтр вкладки по статусам
-            if ($request->filled('status_ids')) {
-                $statusIds = is_array($request->status_ids)
-                    ? $request->status_ids
-                    : explode(',', (string) $request->status_ids);
-                $cleanStatusIds = array_filter(array_map('trim', $statusIds));
-                if (!empty($cleanStatusIds)) {
-                    $query->whereIn('id_status', $cleanStatusIds);
-                }
-            } elseif (isset($this->tabs[$tab])) {
-                $query->whereIn('id_status', $this->tabs[$tab]);
+            /*
+             * 1. Статусы вкладки применяются ВСЕГДА.
+             *
+             * status_ids только сужает вкладку:
+             * через tab=requests нельзя запросить статусы архива.
+             */
+            $query->whereIn(
+                "{$appTable}.id_status",
+                $this->tabs[$tab]
+            );
+
+            $statusIds = $parseIds('status_ids');
+
+            if ($statusIds !== []) {
+                $query->whereIn(
+                    "{$appTable}.id_status",
+                    $statusIds
+                );
             }
 
-            // 1.1. Фильтр по финансовым статусам
-            if ($request->filled('finance_status_ids')) {
-                $finIds = is_array($request->finance_status_ids)
-                    ? $request->finance_status_ids
-                    : explode(',', (string) $request->finance_status_ids);
-                $cleanFinIds = array_filter(array_map('trim', $finIds));
-                if (!empty($cleanFinIds)) {
-                    $finCol = Schema::hasColumn('applications', 'finance_status_id')
-                        ? 'finance_status_id'
-                        : (Schema::hasColumn('applications', 'id_finance_status') ? 'id_finance_status' : 'finance_statuses_id');
+            /*
+             * 2. Область доступа.
+             *
+             * Не используем if (isSto()) ... else ...:
+             * права сотрудника и назначенного сервиса объединяются.
+             *
+             * Автоматический фильтр городов не добавляем:
+             * в присланной ApplicationPolicy его нет.
+             */
+            $isSystemAdmin = $user->isSystemAdmin();
 
-                    $query->whereIn($finCol, $cleanFinIds);
-                }
-            }
+            if (!$isSystemAdmin) {
+                $isOperationalTab = in_array(
+                    $tab,
+                    ['requests', 'applications'],
+                    true
+                );
 
-            // 2. Изоляция по филиалам и правам
-            // 2. Изоляция по филиалам и правам
-            $stoUserLogged = false;
-            $currentUserServiceId = null;
+                $excludedRoleIds = $isOperationalTab
+                    ? [8]
+                    : [8, 9];
 
-            if ($user && method_exists($user, 'isSystemAdmin') && !$user->isSystemAdmin()) {
-                // А. СТО / Сервис
-                if (method_exists($user, 'isSto') && $user->isSto()) {
-                    $stoUserLogged = true;
-                    $currentUserServiceId = method_exists($user, 'getServiceId') ? $user->getServiceId() : null;
+                $branchIds = $user->branchRoles()
+                    ->where('is_active', true)
+                    ->whereNotIn('user_group_id', $excludedRoleIds)
+                    ->whereHas('role')
+                    ->pluck('our_company_id')
+                    ->map(static fn($id) => (int) $id)
+                    ->filter(static fn($id) => $id > 0)
+                    ->unique()
+                    ->values()
+                    ->all();
 
-                    if ($currentUserServiceId) {
-                        $serviceCol = Schema::hasColumn('applications', 'id_service') ? 'id_service' : 'service_id';
-                        $query->where($serviceCol, $currentUserServiceId);
-                    } else {
-                        return response()->json([
-                            'data' => [],
-                            'total' => 0,
-                            'current_page' => 1,
-                            'last_page' => 1,
-                        ]);
+                // Как в ApplicationPolicy::applicationAssignedToOwnService().
+                $ownServiceId = $isOperationalTab
+                    ? (int) ($user->getServiceId() ?? 0)
+                    : 0;
+
+                $hasBranchAccess = $branchColumn !== null
+                    && $branchIds !== [];
+
+                $hasServiceAccess = $serviceColumn !== null
+                    && $ownServiceId > 0;
+
+                $query->where(function ($scope) use ($appTable, $branchColumn, $serviceColumn, $branchIds, $ownServiceId, $hasBranchAccess, $hasServiceAccess) {
+                    if ($hasBranchAccess) {
+                        $scope->whereIn(
+                            "{$appTable}.{$branchColumn}",
+                            $branchIds
+                        );
                     }
-                }
-                // Б. МРК / СПМ / Сотрудники филиала
-                else {
-                    // 1. Собираем филиалы из всех возможных источников
-                    $availableBranches = method_exists($user, 'getAvailableBranchIds')
-                        ? (array) $user->getAvailableBranchIds()
-                        : [];
 
-                    // Фолбэк: если pivot пуст, берем прямую привязку из таблицы users
-                    if (empty($availableBranches) && !empty($user->our_company)) {
-                        $availableBranches[] = (int) $user->our_company;
-                    }
-
-                    // Если у пользователя есть доступные филиалы — фильтруем ТОЛЬКО по ним!
-                    // Не накладываем жесткий AND по городам, чтобы не отсекать дела без указанного города
-                    if (!empty($availableBranches)) {
-                        $query->whereIn('our_company', array_unique($availableBranches));
-                    }
-                    // Если филиалы вообще не заданы, но заданы города — только тогда фильтруем по городам
-                    elseif (method_exists($user, 'cities')) {
-                        $availableCityIds = $user->cities()->pluck('cities.id')->toArray();
-                        if (!empty($availableCityIds)) {
-                            $query->whereIn('id_city', $availableCityIds);
+                    if ($hasServiceAccess) {
+                        if ($hasBranchAccess) {
+                            $scope->orWhere(
+                                "{$appTable}.{$serviceColumn}",
+                                $ownServiceId
+                            );
                         } else {
-                            // Если нет ни филиала, ни города — пользователь не должен видеть чужие данные
-                            $query->whereRaw('1 = 0');
+                            $scope->where(
+                                "{$appTable}.{$serviceColumn}",
+                                $ownServiceId
+                            );
                         }
                     }
-                }
+
+                    // Нет назначений — нет доступа.
+                    if (!$hasBranchAccess && !$hasServiceAccess) {
+                        $scope->whereRaw('1 = 0');
+                    }
+                });
             }
-            // 3. Фильтр по сотрудникам
-            if ($request->filled('mrk_ids')) {
-                $mrkIds = is_array($request->mrk_ids)
-                    ? $request->mrk_ids
-                    : explode(',', (string) $request->mrk_ids);
-                $cleanMrkIds = array_filter(array_map('trim', $mrkIds));
 
-                if (!empty($cleanMrkIds)) {
-                    $query->where(function ($q) use ($cleanMrkIds) {
-                        $q->whereIn('id_MRK', $cleanMrkIds)
-                            ->orWhereIn('id_spm', $cleanMrkIds);
+            // 3. Финансовые статусы.
+            $financeIds = $parseIds('finance_status_ids');
 
-                        if (Schema::hasColumn('applications', 'id_mentor')) {
-                            $q->orWhereIn('id_mentor', $cleanMrkIds);
+            if ($financeIds !== []) {
+                if ($financeColumn === null) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'finance_status_ids' =>
+                            'В таблице дел не настроен внешний ключ финансового статуса.',
+                    ]);
+                }
+
+                $query->whereIn(
+                    "{$appTable}.{$financeColumn}",
+                    $financeIds
+                );
+            }
+
+            // 4. Сотрудники: условие OR обязательно внутри общей группы.
+            $employeeIds = $parseIds('mrk_ids');
+
+            if ($employeeIds !== []) {
+                $employeeColumns = array_values(array_intersect(
+                    ['id_MRK', 'id_spm', 'id_mentor'],
+                    $appColumns
+                ));
+
+                if ($employeeColumns === []) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'mrk_ids' => 'В таблице дел отсутствуют поля ответственных сотрудников.',
+                    ]);
+                }
+
+                $query->where(function ($scope) use ($employeeColumns, $employeeIds, $appTable) {
+                    foreach ($employeeColumns as $index => $column) {
+                        if ($index === 0) {
+                            $scope->whereIn(
+                                "{$appTable}.{$column}",
+                                $employeeIds
+                            );
+                        } else {
+                            $scope->orWhereIn(
+                                "{$appTable}.{$column}",
+                                $employeeIds
+                            );
                         }
-                    });
-                }
-            }
-
-            // 4. Фильтр по городам
-            if ($request->filled('city_ids')) {
-                $cityIds = is_array($request->city_ids)
-                    ? $request->city_ids
-                    : explode(',', (string) $request->city_ids);
-                $cleanCityIds = array_filter(array_map('trim', $cityIds));
-                if (!empty($cleanCityIds)) {
-                    $query->whereIn('id_city', $cleanCityIds);
-                }
-            }
-
-            // 5. Фильтр по СК
-            if ($request->filled('insurance_ids')) {
-                $insIds = is_array($request->insurance_ids)
-                    ? $request->insurance_ids
-                    : explode(',', (string) $request->insurance_ids);
-                $cleanInsIds = array_filter(array_map('trim', $insIds));
-                if (!empty($cleanInsIds)) {
-                    $query->whereIn('id_insuranceCompany', $cleanInsIds);
-                }
-            }
-
-            // 6. Фильтр по филиалам
-            if ($request->filled('branch_ids')) {
-                $branchIds = is_array($request->branch_ids)
-                    ? $request->branch_ids
-                    : explode(',', (string) $request->branch_ids);
-                $cleanBranchIds = array_filter(array_map('trim', $branchIds));
-                if (!empty($cleanBranchIds)) {
-                    $query->whereIn('our_company', $cleanBranchIds);
-                }
-            }
-
-            // 7. Фильтр по типу убытка
-            if ($request->filled('ub_types')) {
-                $ubTypes = is_array($request->ub_types)
-                    ? $request->ub_types
-                    : explode(',', (string) $request->ub_types);
-                $cleanUbTypes = array_filter($ubTypes, fn($v) => $v !== '' && $v !== null);
-                if (!empty($cleanUbTypes)) {
-                    $query->whereIn('ub_type', $cleanUbTypes);
-                }
-            }
-
-            // 8. Текстовые поисковые фильтры
-            if ($request->filled('id')) {
-                $query->where('id', 'LIKE', '%' . trim((string) $request->id) . '%');
-            }
-            if ($request->filled('ub_number')) {
-                $ub = trim((string) $request->ub_number);
-                $query->where(function ($q) use ($ub) {
-                    $q->where('numberInsuranceCompanyApplication', 'LIKE', "%{$ub}%")
-                        ->orWhere('ub_number', 'LIKE', "%{$ub}%");
-                });
-            }
-            if ($request->filled('ClientName')) {
-                $query->where('ClientName', 'LIKE', '%' . trim((string) $request->ClientName) . '%');
-            }
-            if ($request->filled('ClientPhone')) {
-                $query->where('ClientPhone', 'LIKE', '%' . trim((string) $request->ClientPhone) . '%');
-            }
-            if ($request->filled('CarModel')) {
-                $query->where('CarModel', 'LIKE', '%' . trim((string) $request->CarModel) . '%');
-            }
-            if ($request->filled('gnz')) {
-                $query->where('gnz', 'LIKE', '%' . trim((string) $request->gnz) . '%');
-            }
-            if ($request->filled('vin')) {
-                $query->where('vin', 'LIKE', '%' . trim((string) $request->vin) . '%');
-            }
-            if ($request->filled('sto_name') && Schema::hasColumn('applications', 'service_name')) {
-                $query->where('service_name', 'LIKE', '%' . trim((string) $request->sto_name) . '%');
-            }
-
-            // 9. Общий поиск
-            if ($request->filled('search')) {
-                $s = trim((string) $request->search);
-                $query->where(function ($q) use ($s) {
-                    $q->where('id', 'LIKE', "%{$s}%")
-                        ->orWhere('numberInsuranceCompanyApplication', 'LIKE', "%{$s}%")
-                        ->orWhere('ub_number', 'LIKE', "%{$s}%")
-                        ->orWhere('CarModel', 'LIKE', "%{$s}%")
-                        ->orWhere('gnz', 'LIKE', "%{$s}%")
-                        ->orWhere('vin', 'LIKE', "%{$s}%")
-                        ->orWhere('ClientName', 'LIKE', "%{$s}%")
-                        ->orWhere('ClientPhone', 'LIKE', "%{$s}%");
+                    }
                 });
             }
 
-            $perPage = (int) $request->input('per_page', 50);
-            $paginator = $query->orderBy('id', 'desc')->paginate($perPage);
+            // 5. Остальные фильтры только сужают область доступа.
+            $listFilters = [
+                'city_ids' => 'id_city',
+                'insurance_ids' => 'id_insuranceCompany',
+                'branch_ids' => $branchColumn,
+                'ub_types' => 'ub_type',
+            ];
 
-            // ПОДГРУЖАЕМ КАРТУ СЕРВИСОВ
+            foreach ($listFilters as $field => $column) {
+                $ids = $parseIds($field, $field === 'ub_types');
+
+                if ($ids === []) {
+                    continue;
+                }
+
+                if (
+                    $column === null
+                    || !in_array($column, $appColumns, true)
+                ) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        $field => 'Этот фильтр не поддерживается текущей структурой таблицы дел.',
+                    ]);
+                }
+
+                if (
+                    $field === 'ub_types'
+                    && array_diff($ids, [0, 1]) !== []
+                ) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        $field => 'Допустимые типы убытка: 0 и 1.',
+                    ]);
+                }
+
+                $query->whereIn(
+                    "{$appTable}.{$column}",
+                    $ids
+                );
+            }
+
+            // 6. Текстовые фильтры.
+            $textData = $request->validate([
+                'id' => ['sometimes', 'nullable', 'string', 'max:255'],
+                'ub_number' => ['sometimes', 'nullable', 'string', 'max:255'],
+                'ClientName' => ['sometimes', 'nullable', 'string', 'max:255'],
+                'ClientPhone' => ['sometimes', 'nullable', 'string', 'max:255'],
+                'CarModel' => ['sometimes', 'nullable', 'string', 'max:255'],
+                'gnz' => ['sometimes', 'nullable', 'string', 'max:255'],
+                'vin' => ['sometimes', 'nullable', 'string', 'max:255'],
+                'sto_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+                'search' => ['sometimes', 'nullable', 'string', 'max:255'],
+            ]);
+
+            foreach ([
+                'id',
+                'ClientName',
+                'ClientPhone',
+                'CarModel',
+                'gnz',
+                'vin',
+            ] as $column) {
+                $value = trim((string) ($textData[$column] ?? ''));
+
+                if ($value !== '') {
+                    $query->where(
+                        "{$appTable}.{$column}",
+                        'LIKE',
+                        "%{$value}%"
+                    );
+                }
+            }
+
+            $ubNumber = trim((string) ($textData['ub_number'] ?? ''));
+
+            if ($ubNumber !== '') {
+                $query->where(function ($scope) use ($ubNumber, $appTable) {
+                    $scope
+                        ->where(
+                            "{$appTable}.numberInsuranceCompanyApplication",
+                            'LIKE',
+                            "%{$ubNumber}%"
+                        )
+                        ->orWhere(
+                            "{$appTable}.ub_number",
+                            'LIKE',
+                            "%{$ubNumber}%"
+                        );
+                });
+            }
+
+            $stoName = trim((string) ($textData['sto_name'] ?? ''));
+
+            if (
+                $stoName !== ''
+                && in_array('service_name', $appColumns, true)
+            ) {
+                $query->where(
+                    "{$appTable}.service_name",
+                    'LIKE',
+                    "%{$stoName}%"
+                );
+            }
+
+            $search = trim((string) ($textData['search'] ?? ''));
+
+            if ($search !== '') {
+                $searchColumns = array_values(array_intersect([
+                    'id',
+                    'numberInsuranceCompanyApplication',
+                    'ub_number',
+                    'CarModel',
+                    'gnz',
+                    'vin',
+                    'ClientName',
+                    'ClientPhone',
+                ], $appColumns));
+
+                $query->where(function ($scope) use ($searchColumns, $search, $appTable) {
+                    foreach ($searchColumns as $index => $column) {
+                        if ($index === 0) {
+                            $scope->where(
+                                "{$appTable}.{$column}",
+                                'LIKE',
+                                "%{$search}%"
+                            );
+                        } else {
+                            $scope->orWhere(
+                                "{$appTable}.{$column}",
+                                'LIKE',
+                                "%{$search}%"
+                            );
+                        }
+                    }
+                });
+            }
+
+            $paginator = $query
+                ->orderBy("{$appTable}.id", 'desc')
+                ->paginate($perPage);
+
+            /*
+             * Справочник СТО: только сервисы дел текущей страницы.
+             * Не подставляем сервис пользователя в чужое/непривязанное дело.
+             */
             $servicesMap = collect();
-            if (Schema::hasTable('services')) {
-                $serviceCols = ['id', 'name'];
-                if (Schema::hasColumn('services', 'bg_color'))
-                    $serviceCols[] = 'bg_color';
-                if (Schema::hasColumn('services', 'text_color'))
-                    $serviceCols[] = 'text_color';
 
-                $servicesMap = DB::table('services')
-                    ->select($serviceCols)
-                    ->get()
-                    ->keyBy('id');
+            if (
+                $serviceColumn !== null
+                && Schema::hasTable('services')
+            ) {
+                $serviceIds = $paginator->getCollection()
+                    ->map(
+                        static fn($app) =>
+                            (int) ($app->getAttribute($serviceColumn) ?? 0)
+                    )
+                    ->filter(static fn($id) => $id > 0)
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                if ($serviceIds !== []) {
+                    $serviceColumns = ['id', 'name'];
+
+                    foreach (['bg_color', 'text_color'] as $column) {
+                        if (Schema::hasColumn('services', $column)) {
+                            $serviceColumns[] = $column;
+                        }
+                    }
+
+                    $servicesMap = DB::table('services')
+                        ->select($serviceColumns)
+                        ->whereIn('id', $serviceIds)
+                        ->get()
+                        ->keyBy('id');
+                }
             }
 
-            // ПОДГРУЖАЕМ КАРТУ ФИНАНСОВЫХ СТАТУСОВ НАПРЯМУЮ
             $finStatusesMap = collect();
-            if (Schema::hasTable('finance_statuses')) {
-                $finColumns = Schema::getColumnListing('finance_statuses');
-                $selectCols = ['id', 'name'];
 
-                if (in_array('fin_time', $finColumns, true))
-                    $selectCols[] = 'fin_time';
-                if (in_array('time', $finColumns, true))
-                    $selectCols[] = 'time';
-                if (in_array('fin_day', $finColumns, true))
-                    $selectCols[] = 'fin_day';
-                if (in_array('is_day', $finColumns, true))
-                    $selectCols[] = 'is_day';
-                if (in_array('day', $finColumns, true))
-                    $selectCols[] = 'day';
+            if (Schema::hasTable('finance_statuses')) {
+                $availableColumns = Schema::getColumnListing(
+                    'finance_statuses'
+                );
+
+                $selectColumns = array_values(array_intersect([
+                    'id',
+                    'name',
+                    'fin_time',
+                    'time',
+                    'fin_day',
+                    'is_day',
+                    'day',
+                    'color',
+                    'bg_color',
+                    'text_color',
+                ], $availableColumns));
 
                 $finStatusesMap = DB::table('finance_statuses')
-                    ->select($selectCols)
+                    ->select($selectColumns)
                     ->get()
                     ->keyBy('id');
             }
 
-            // Таймер-сервис (если зарегистрирован в проекте)
             $timerService = null;
+
             if (class_exists(\App\Services\ApplicationTimerService::class)) {
                 try {
-                    $timerService = app(\App\Services\ApplicationTimerService::class);
+                    $timerService = app(
+                        \App\Services\ApplicationTimerService::class
+                    );
                 } catch (\Throwable $e) {
-                    $timerService = null;
+                    Log::warning('Не удалось создать сервис таймеров.', [
+                        'error' => $e->getMessage(),
+                    ]);
                 }
             }
 
-            $paginator->getCollection()->transform(function ($app) use ($timerService, $servicesMap, $finStatusesMap, $stoUserLogged, $currentUserServiceId, $user) {
-                // ==========================================
-                // СЕРВИС / СТО
-                // ==========================================
-                $servId = (int) ($app->id_service ?? $app->service_id ?? 0);
+            $paginator->getCollection()->transform(
+                function ($app) use ($user, $serviceColumn, $financeColumn, $servicesMap, $finStatusesMap, $timerService) {
+                    // СТО определяется по самому делу.
+                    $serviceId = $serviceColumn !== null
+                        ? (int) ($app->getAttribute($serviceColumn) ?? 0)
+                        : 0;
 
-                if ($servId === 0 && $stoUserLogged && $currentUserServiceId) {
-                    $servId = (int) $currentUserServiceId;
-                }
+                    $serviceRow = $serviceId > 0
+                        ? $servicesMap->get($serviceId)
+                        : null;
 
-                $servRow = $servId > 0 ? $servicesMap->get($servId) : null;
-                $servName = null;
-                $servBg = '#e0f2fe';
-                $servText = '#0369a1';
+                    $serviceRelation = $app->relationLoaded('service')
+                        ? $app->getRelation('service')
+                        : null;
 
-                if ($servRow) {
-                    $servName = $servRow->name;
-                    $servBg = $servRow->bg_color ?? '#e0f2fe';
-                    $servText = $servRow->text_color ?? '#0369a1';
-                } elseif (!empty($app->service_name) && trim($app->service_name) !== '' && $app->service_name !== 'Прочее') {
-                    $servName = trim($app->service_name);
-                } elseif ($app->relationLoaded('service') && $app->service) {
-                    $servName = $app->service->name;
-                    $servBg = $app->service->bg_color ?? '#e0f2fe';
-                    $servText = $app->service->text_color ?? '#0369a1';
-                } elseif ($stoUserLogged) {
-                    $servName = $user->service?->name ?? $user->name ?? 'СТО';
-                }
+                    $serviceName = trim((string) (
+                        $serviceRow->name
+                        ?? $serviceRelation?->name
+                        ?? ''
+                    ));
 
-                $app->service_name = $servName ?: 'Прочее';
-                $app->service_bg = $servBg;
-                $app->service_text = $servText;
-
-                $app->setRelation('service', (object) [
-                    'id' => $servId,
-                    'name' => $app->service_name,
-                    'bg_color' => $app->service_bg,
-                    'text_color' => $app->service_text,
-                ]);
-
-                // ==========================================
-                // ФИНАНСОВЫЙ СТАТУС (СОГЛ / ОПЛ)
-                // ==========================================
-                $finId = (int) ($app->finance_status_id ?? $app->id_finance_status ?? $app->finance_statuses_id ?? 0);
-                $finRow = $finId > 0 ? $finStatusesMap->get($finId) : null;
-
-                if ((!$app->relationLoaded('financeStatus') || !$app->financeStatus) && $finRow) {
-                    $app->setRelation('financeStatus', (object) (array) $finRow);
-                }
-
-                $finObj = $app->financeStatus ?? $app->finStatus ?? ($finRow ? (object) (array) $finRow : null);
-
-                $finTime = 0;
-                $finDay = 0;
-                if ($finObj) {
-                    $finTime = (int) ($finObj->fin_time ?? $finObj->time ?? 0);
-                    $finDay = (int) ($finObj->fin_day ?? $finObj->is_day ?? $finObj->day ?? 0);
-                }
-
-                $app->fin_time = $finTime;
-                $app->fin_day = $finDay;
-                $app->finance_status_id = $finId;
-                $app->finance_statuses_id = $finId;
-
-                // Название для отображения в столбце и тулбаре
-                $app->finance_status_name = $finObj->name ?? $app->soglas_title ?? '';
-                if ($finObj && !isset($app->finance_status)) {
-                    $app->finance_status = [
-                        'id' => $finId,
-                        'name' => $finObj->name ?? '',
-                    ];
-                }
-
-                // ==========================================
-                // РАСЧЕТ ТАЙМЕРОВ (ОСНОВНОЙ + ФИНАНСОВЫЙ)
-                // ==========================================
-                $app->time = (int) ($app->status->time ?? $app->time ?? 0);
-                $app->day = (int) ($app->status->day ?? $app->status->is_day ?? $app->day ?? 0);
-
-                if ($timerService) {
-                    try {
-                        $timers = $timerService->calculate($app);
-                        $app->app_timer = $timers['app_timer'] ?? null;
-                        $app->finance_timer = $timers['finance_timer'] ?? null;
-
-                        $app->max_hour = $timers['app_timer']['max_hour'] ?? 0;
-                        $app->count_hour = $timers['app_timer']['count_hour'] ?? 0;
-                        $app->is_overdue = $timers['app_timer']['is_overdue'] ?? false;
-                        $app->is_day = $timers['app_timer']['is_day'] ?? false;
-                        $app->time_status_text = $timers['app_timer']['display_text'] ?? '';
-
-                        $app->max_hour_f = $timers['finance_timer']['max_hour_f'] ?? 0;
-                        $app->count_hour_f = $timers['finance_timer']['count_hour_f'] ?? 0;
-                    } catch (\Throwable $te) {
-                        $custom = $this->calculateCustomTimer($app);
-                        $app->is_overdue = $custom['is_overdue'];
-                        $app->time_status_text = $custom['text'];
-                        $app->app_timer = null;
-                        $app->finance_timer = null;
+                    if ($serviceName === '') {
+                        $serviceName = trim((string) (
+                            $app->getAttribute('service_name') ?? ''
+                        ));
                     }
-                } else {
-                    $custom = $this->calculateCustomTimer($app);
-                    $app->is_overdue = $custom['is_overdue'];
-                    $app->time_status_text = $custom['text'];
-                    $app->app_timer = null;
-                    $app->finance_timer = null;
+
+                    $serviceName = $serviceName !== ''
+                        ? $serviceName
+                        : 'Прочее';
+
+                    $serviceBg = $serviceRow->bg_color
+                        ?? $serviceRelation?->bg_color
+                        ?? '#e0f2fe';
+
+                    $serviceText = $serviceRow->text_color
+                        ?? $serviceRelation?->text_color
+                        ?? '#0369a1';
+
+                    // Финансовый статус.
+                    $financeId = $financeColumn !== null
+                        ? (int) ($app->getAttribute($financeColumn) ?? 0)
+                        : 0;
+
+                    $financeObject = $financeId > 0
+                        ? $finStatusesMap->get($financeId)
+                        : null;
+
+                    if (!$financeObject) {
+                        foreach (['financeStatus', 'finStatus'] as $relation) {
+                            if (
+                                $app->relationLoaded($relation)
+                                && $app->getRelation($relation)
+                            ) {
+                                $financeObject = $app->getRelation($relation);
+                                break;
+                            }
+                        }
+                    }
+
+                    $app->fin_time = (int) (
+                        $financeObject->fin_time
+                        ?? $financeObject->time
+                        ?? 0
+                    );
+
+                    $app->fin_day = (int) (
+                        $financeObject->fin_day
+                        ?? $financeObject->is_day
+                        ?? $financeObject->day
+                        ?? 0
+                    );
+
+                    $status = $app->relationLoaded('status')
+                        ? $app->getRelation('status')
+                        : null;
+
+                    $app->time = (int) (
+                        $status?->time ?? $app->time ?? 0
+                    );
+
+                    $app->day = (int) (
+                        $status?->day
+                        ?? $status?->is_day
+                        ?? $app->day
+                        ?? 0
+                    );
+
+                    // Таймеры.
+                    $timers = [];
+
+                    if ($timerService) {
+                        try {
+                            $timers = $timerService->calculate($app);
+                        } catch (\Throwable $e) {
+                            Log::warning('Ошибка расчёта таймеров дела.', [
+                                'application_id' => $app->id,
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
+                    }
+
+                    $customTimer = [
+                        'is_overdue' => false,
+                        'text' => '',
+                    ];
+
+                    if (empty($timers['app_timer'])) {
+                        $customTimer = $this->calculateCustomTimer($app);
+                    }
+
+                    $soglas = $this->calculateSoglasOplTimer($app);
+
+                    $sumSk = (float) ($app->sum_sk ?? 0);
+                    $sumZap = (float) ($app->sum_zap ?? 0);
+                    $remontSum = (float) ($app->remont_sum ?? 0);
+                    $totalCosts = $sumZap + $remontSum;
+                    $remains = max(0, $sumSk - $totalCosts);
+
+                    /*
+                     * Формируем массив ответа.
+                     *
+                     * Не записываем stdClass через setRelation():
+                     * Eloquent ожидает сериализуемую модель/коллекцию.
+                     */
+                    $data = $app->toArray();
+
+                    $data['service_name'] = $serviceName;
+                    $data['service_bg'] = $serviceBg;
+                    $data['service_text'] = $serviceText;
+
+                    $data['service'] = [
+                        'id' => $serviceId > 0 ? $serviceId : null,
+                        'name' => $serviceName,
+                        'bg_color' => $serviceBg,
+                        'text_color' => $serviceText,
+                    ];
+
+                    $financeName = (string) (
+                        $financeObject->name
+                        ?? $soglas['title']
+                        ?? ''
+                    );
+
+                    $data['finance_status_id'] = $financeId;
+                    $data['finance_statuses_id'] = $financeId;
+                    $data['finance_status_name'] = $financeName;
+                    $data['fin_time'] = (int) $app->fin_time;
+                    $data['fin_day'] = (int) $app->fin_day;
+
+                    // Стандартное snake_case-имя связи Eloquent.
+                    $data['finance_status'] = $financeObject
+                        ? array_merge((array) (
+                            $financeObject instanceof
+                            \Illuminate\Database\Eloquent\Model
+                            ? $financeObject->toArray()
+                            : $financeObject
+                        ), [
+                            'id' => $financeId,
+                            'name' => $financeName,
+                        ])
+                        : null;
+
+                    $data['app_timer'] = $timers['app_timer'] ?? null;
+                    $data['finance_timer'] = $timers['finance_timer'] ?? null;
+
+                    $data['max_hour'] =
+                        $timers['app_timer']['max_hour'] ?? 0;
+
+                    $data['count_hour'] =
+                        $timers['app_timer']['count_hour'] ?? 0;
+
+                    $data['is_overdue'] =
+                        $timers['app_timer']['is_overdue']
+                        ?? $customTimer['is_overdue'];
+
+                    $data['is_day'] =
+                        $timers['app_timer']['is_day'] ?? false;
+
+                    $data['time_status_text'] =
+                        $timers['app_timer']['display_text']
+                        ?? $customTimer['text'];
+
+                    $data['max_hour_f'] =
+                        $timers['finance_timer']['max_hour_f'] ?? 0;
+
+                    $data['count_hour_f'] =
+                        $timers['finance_timer']['count_hour_f'] ?? 0;
+
+                    $data['soglas_title'] = $financeName;
+                    $data['soglas_time_text'] =
+                        $soglas['time_text'] ?? '';
+
+                    $data['soglas_overdue'] =
+                        $soglas['is_overdue'] ?? false;
+
+                    $data['sum_sk'] = $sumSk;
+                    $data['sum_zap'] = $sumZap;
+                    $data['remont_sum'] = $remontSum;
+                    $data['total_costs'] = $totalCosts;
+                    $data['ic_pay'] = (float) ($app->ic_pay ?? 0);
+                    $data['sto_pay'] = (float) ($app->sto_pay ?? 0);
+                    $data['remains'] = $remains;
+
+                    $data['remains_percent'] = $sumSk > 0
+                        ? (int) round(($remains / $sumSk) * 100)
+                        : 0;
+
+                    // Права действий — только через существующую policy.
+                    $data['permissions']['status'] = [
+                        'change_status' =>
+                            \Illuminate\Support\Facades\Gate::forUser($user)
+                                ->allows('changeStatus', $app),
+
+                        'change_finance_status' =>
+                            \Illuminate\Support\Facades\Gate::forUser($user)
+                                ->allows('changeFinanceStatus', $app),
+                    ];
+
+                    return $data;
                 }
-
-                $soglas = $this->calculateSoglasOplTimer($app);
-                $app->soglas_title = !empty($app->finance_status_name) ? $app->finance_status_name : $soglas['title'];
-                $app->soglas_time_text = $soglas['time_text'];
-                $app->soglas_overdue = $soglas['is_overdue'];
-
-                // Расчёт сумм
-                $sumSk = (float) ($app->sum_sk ?? 0);
-                $sumZap = (float) ($app->sum_zap ?? 0);
-                $remontSum = (float) ($app->remont_sum ?? 0);
-                $totalCosts = $sumZap + $remontSum;
-                $remains = max(0, $sumSk - $totalCosts);
-
-                $app->sum_sk = $sumSk;
-                $app->sum_zap = $sumZap;
-                $app->remont_sum = $remontSum;
-                $app->total_costs = $totalCosts;
-                $app->ic_pay = (float) ($app->ic_pay ?? 0);
-                $app->sto_pay = (float) ($app->sto_pay ?? 0);
-                $app->remains = $remains;
-                $app->remains_percent = $sumSk > 0 ? (int) round(($remains / $sumSk) * 100) : 0;
-
-                return $app;
-            });
+            );
 
             return response()->json($paginator);
+        } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+            return response()->json([
+                'message' => 'Раздел реестра недоступен для текущей роли.',
+            ], 403);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'message' => 'Некорректные параметры фильтрации.',
+                'errors' => $e->errors(),
+            ], 422);
         } catch (\Throwable $e) {
-            Log::error('Ошибка в ApplicationController::index: ' . $e->getMessage(), [
+            Log::error('Ошибка в ApplicationController::index.', [
+                'error' => $e->getMessage(),
                 'file' => $e->getFile() . ':' . $e->getLine(),
                 'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
-                'message' => 'Ошибка загрузки списка дел: ' . $e->getMessage(),
+                'message' => 'Ошибка загрузки списка дел.',
                 'debug' => config('app.debug') ? [
                     'file' => $e->getFile() . ':' . $e->getLine(),
                     'msg' => $e->getMessage(),
@@ -654,56 +1021,43 @@ class ApplicationController extends Controller
      */
     public function counts(Request $request): JsonResponse
     {
-        /** @var \App\Models\User|null $user */
+        /** @var User $user */
         $user = $request->user();
+
         $base = Application::query();
 
-        if ($user && method_exists($user, 'isSystemAdmin') && !$user->isSystemAdmin()) {
-            if (method_exists($user, 'isSto') && $user->isSto()) {
-                $serviceId = method_exists($user, 'getServiceId') ? $user->getServiceId() : null;
-                if ($serviceId) {
-                    $base->where('id_service', $serviceId);
-                } else {
-                    return response()->json([
-                        'requests' => 0,
-                        'applications' => 0,
-                        'acceptance' => 0,
-                        'archive' => 0,
-                        'trash' => 0,
-                    ]);
-                }
-            } else {
-                $availableBranches = method_exists($user, 'getAvailableBranchIds')
-                    ? $user->getAvailableBranchIds()
-                    : [];
-
-                if (!empty($availableBranches)) {
-                    $base->whereIn('our_company', $availableBranches);
-                } else {
-                    return response()->json([
-                        'requests' => 0,
-                        'applications' => 0,
-                        'acceptance' => 0,
-                        'archive' => 0,
-                        'trash' => 0,
-                    ]);
-                }
-
-                if (method_exists($user, 'cities')) {
-                    $availableCityIds = $user->cities()->pluck('cities.id')->toArray();
-                    if (!empty($availableCityIds)) {
-                        $base->whereIn('id_city', $availableCityIds);
-                    }
-                }
-            }
+        if (!$user->isSystemAdmin()) {
+            $this->applyRegistryVisibility($base, $user);
         }
 
+        $countFor = function (string $tab) use ($user, $base): int {
+            if (
+                !Gate::forUser($user)->allows(
+                    'viewRegistryTab',
+                    [$tab]
+                )
+            ) {
+                return 0;
+            }
+
+            return (clone $base)
+                ->whereIn(
+                    'id_status',
+                    $this->tabs[$tab]
+                )
+                ->count();
+        };
+
         return response()->json([
-            'requests' => (clone $base)->whereIn('id_status', $this->tabs['requests'])->count(),
-            'applications' => (clone $base)->whereIn('id_status', $this->tabs['applications'])->count(),
-            'acceptance' => (clone $base)->whereIn('id_status', $this->tabs['acceptance'])->count(),
-            'archive' => (clone $base)->whereIn('id_status', $this->tabs['archive'])->count(),
-            'trash' => (clone $base)->whereIn('id_status', $this->tabs['trash'])->count(),
+            'requests' => $countFor('requests'),
+
+            'applications' => $countFor('applications'),
+
+            'acceptance' => $countFor('acceptance'),
+
+            'archive' => $countFor('archive'),
+
+            'trash' => $countFor('trash'),
         ]);
     }
 
@@ -1234,5 +1588,93 @@ class ApplicationController extends Controller
             Log::error('Ошибка в getBranchEmployees: ' . $e->getMessage());
             return response()->json(['mrk' => [], 'mentors' => [], 'spm' => []]);
         }
+    }
+
+    /**
+     * Единая область видимости дел для index().
+     *
+     * Пользователь видит:
+     * - дела филиалов, где у него есть активная роль,
+     *   кроме чистой роли СТО;
+     * - дела, назначенные его собственному автосервису.
+     */
+    protected function applyRegistryVisibility(
+        Builder $query,
+        User $user
+    ): void {
+        $branchIds = $user->branchRoles()
+            ->where('is_active', true)
+            ->where('user_group_id', '<>', 8)
+            ->whereHas('role')
+            ->pluck('our_company_id')
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $serviceId = method_exists($user, 'getServiceId')
+            ? $user->getServiceId()
+            : null;
+
+        $serviceColumn = Schema::hasColumn(
+            'applications',
+            'id_service'
+        )
+            ? 'id_service'
+            : (
+                Schema::hasColumn('applications', 'service_id')
+                ? 'service_id'
+                : null
+            );
+
+        $cityIds = [];
+
+        if ($branchIds !== [] && method_exists($user, 'cities')) {
+            $cityIds = $user->cities()
+                ->pluck('cities.id')
+                ->map(fn($id) => (int) $id)
+                ->all();
+        }
+
+        $hasBranchAccess = $branchIds !== [];
+        $hasServiceAccess = $serviceId !== null
+            && $serviceId > 0
+            && $serviceColumn !== null;
+
+        $query->where(function (Builder $scope) use ($branchIds, $cityIds, $serviceId, $serviceColumn, $hasBranchAccess, $hasServiceAccess) {
+            if ($hasBranchAccess) {
+                $scope->where(function (Builder $branchScope) use ($branchIds, $cityIds) {
+                    $branchScope->whereIn(
+                        'our_company',
+                        $branchIds
+                    );
+
+                    if ($cityIds !== []) {
+                        $branchScope->whereIn(
+                            'id_city',
+                            $cityIds
+                        );
+                    }
+                });
+            }
+
+            if ($hasServiceAccess) {
+                if ($hasBranchAccess) {
+                    $scope->orWhere(
+                        $serviceColumn,
+                        $serviceId
+                    );
+                } else {
+                    $scope->where(
+                        $serviceColumn,
+                        $serviceId
+                    );
+                }
+            }
+
+            if (!$hasBranchAccess && !$hasServiceAccess) {
+                $scope->whereRaw('1 = 0');
+            }
+        });
     }
 }

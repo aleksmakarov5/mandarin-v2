@@ -16,11 +16,7 @@ const routes = [
         meta: { requiresAuth: true },
         children: [
             { path: '', redirect: '/dashboard' },
-            // { path: 'requests', name: 'requests', component: () => import('../views/Dashboard.vue') },
             { path: 'dashboard', name: 'dashboard', component: () => import('../views/Dashboard.vue') },
-            { path: 'acceptance', name: 'acceptance', component: () => import('../views/Dashboard.vue') },
-            { path: 'archive', name: 'archive', component: () => import('../views/Dashboard.vue') },
-            { path: 'trash', name: 'trash', component: () => import('../views/Dashboard.vue') },
             { path: 'mail', name: 'mail', component: () => import('../views/Dashboard.vue') },
             { path: 'chat', name: 'chat', component: () => import('../views/Dashboard.vue') },
             { path: 'warehouse', name: 'warehouse', component: () => import('../views/Dashboard.vue') },

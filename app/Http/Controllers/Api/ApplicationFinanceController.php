@@ -90,7 +90,8 @@ class ApplicationFinanceController extends Controller
             $application->fresh(),
             $request->user()
         );
-
+        $result['data']['permissions']['edit_cash'] =
+            Gate::allows('changeFinanceCash', $application);
         $summary = is_array($result['data'] ?? null)
             ? $result['data']
             : $result;

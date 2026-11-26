@@ -42,7 +42,7 @@
                             <span class="pill-label">Цена со скидкой:</span>
                             <span class="pill-value font-monospace fw-bold text-success">{{
                                 formatMoney(totalSumDiscounted)
-                                }} ₽</span>
+                            }} ₽</span>
                         </div>
                     </template>
 
@@ -91,6 +91,7 @@
                             <th class="col-idx">#</th>
                             <th class="col-name text-start ps-2">Наименование</th>
                             <th class="col-part-num">Кат. номер</th>
+                            <th class="col-order-num">Заказ. номер</th>
 
                             <template v-if="!isStoUser">
                                 <th class="col-price">Цена СК</th>
@@ -167,6 +168,15 @@
                                 @blur="saveTextField(part, 'part_number', $event.target.innerText)"
                                 @keydown.enter.prevent="$event.target.blur()">
                                 {{ part.part_number }}
+                            </td>
+
+                            <!-- 4. Заказ. номер -->
+                            <td class="editable-cell text-center font-monospace text-uppercase col-order-num"
+                                :contenteditable="!part.is_small_parts"
+                                :title="part.order_number || 'Номер заказа не указан'"
+                                @blur="saveTextField(part, 'order_number', $event.target.innerText)"
+                                @keydown.enter.prevent="$event.target.blur()">
+                                {{ part.order_number || '—' }}
                             </td>
 
                             <!-- ЦЕНЫ КАЛЬКУЛЯЦИИ -->
@@ -442,7 +452,7 @@
                     </div>
                     <div>{{ creatorTooltip.author }}</div>
                     <div class="text-muted font-monospace mt-0.5" style="font-size: 0.65rem;">{{ creatorTooltip.date
-                    }}
+                        }}
                     </div>
                 </div>
             </Teleport>
@@ -857,9 +867,41 @@ const isNaprTab = computed(() => {
 });
 
 const tableColspan = computed(() => {
-    let cols = 10; // #, имя, кат, СК, ПЗН/скидка, ориг, аналог, бу, СТО, ЕА, АП, EM, коммент
-    if (isNaprTab.value || isStoUser.value) cols += 3;
-    if (!isStoUser.value) cols += 1;
+    /*
+     * Базовые колонки:
+     * #, Наименование, Кат. номер, Заказ. номер
+     */
+    let cols = 4;
+
+    /*
+     * Для обычного пользователя:
+     * Цена СК, Цена ПЗН/Со скидкой, Оригинал, Аналог, Б/у
+     */
+    if (!isStoUser.value) {
+        cols += 5;
+    }
+
+    /*
+     * Цена СТО, ЕА, АП, EM, Комментарий
+     */
+    cols += 1; // Цена СТО
+    cols += 3; // ЕА, АП, EM
+    cols += 1; // Комментарий
+
+    /*
+     * Статус, Дата заказа, Ожид. дата
+     */
+    if (isNaprTab.value || isStoUser.value) {
+        cols += 3;
+    }
+
+    /*
+     * Удаление
+     */
+    if (!isStoUser.value) {
+        cols += 1;
+    }
+
     return cols;
 });
 
@@ -1699,9 +1741,15 @@ onMounted(fetchParts);
 }
 
 .col-part-num {
-    width: 120px;
-    min-width: 100px;
-    max-width: 130px;
+    width: 88px;
+    min-width: 78px;
+    max-width: 100px;
+}
+
+.col-order-num {
+    width: 88px;
+    min-width: 78px;
+    max-width: 100px;
 }
 
 .col-price {

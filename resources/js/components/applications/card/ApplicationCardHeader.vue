@@ -70,9 +70,9 @@
             </button>
         </div>
 
-        <div v-if="canViewFinance && warnings.length" class="header-message warning-message" role="status">
+        <!-- <div v-if="canViewFinance && warnings.length" class="header-message warning-message" role="status">
             {{ warnings.join(' · ') }}
-        </div>
+        </div> -->
     </header>
 
     <FinanceSalaryRatesModal v-if="canManageSalaryRates" v-model="showSalaryRates" :application-id="applicationId"

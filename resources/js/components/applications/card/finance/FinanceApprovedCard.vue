@@ -760,8 +760,8 @@ function pastePlainText(event) {
    ========================================================= */
 
 .approved-card {
-    width: 225px;
-    min-width: 225px;
+    width: 200px;
+    min-width: 170px;
     padding: 4px 6px;
     gap: 2px;
     border-radius: 5px;

@@ -144,18 +144,29 @@ class ApplicationPolicy
     }
 
     /**
-     * Только владелец в филиале дела.
+     * Редактирование поступлений и дат ДДС:
+     * владелец или бухгалтер в филиале дела.
      *
-     * Системный администратор проходит через существующий before().
+     * Системный администратор проходит через before().
      */
     public function changeFinanceCash(
         User $user,
         Application $application
     ): bool {
-        $branchId = (int) $application->our_company;
+        $attributes = $application->getAttributes();
+
+        $branchId = (int) (
+            $attributes['our_company']
+            ?? $attributes['our_company_id']
+            ?? $attributes['id_our_company']
+            ?? 0
+        );
 
         return $branchId > 0
-            && $user->hasBranchRole('owner', $branchId);
+            && $user->hasBranchRole(
+                ['owner', 'accountant'],
+                $branchId
+            );
     }
 
     public function manageFinanceSalaryRates(
@@ -193,4 +204,167 @@ class ApplicationPolicy
             && $userServiceId > 0
             && $applicationServiceId === $userServiceId;
     }
+
+    /**
+     * Полный просмотр вкладки «Основное».
+     *
+     * Только СТО (8) или только запчастист (9):
+     * ограниченный просмотр.
+     *
+     * Дополнительная активная роль сотрудника
+     * в филиале дела даёт полный просмотр.
+     */
+    public function viewGeneralFull(
+        User $user,
+        Application $application
+    ): bool {
+        $attributes = $application->getAttributes();
+
+        $branchId = (int) (
+            $attributes['our_company']
+            ?? $attributes['our_company_id']
+            ?? $attributes['id_our_company']
+            ?? 0
+        );
+
+        if ($branchId <= 0) {
+            return false;
+        }
+
+        return $user->branchRoles()
+            ->where('our_company_id', $branchId)
+            ->where('is_active', true)
+            ->whereNotIn('user_group_id', [8, 9])
+            ->whereHas('role')
+            ->exists();
+    }
+
+    /**
+     * Редактирование вкладки «Основное».
+     *
+     * Сохраняем существующие права сотрудников,
+     * исключая доступ только по ролям СТО и СПМ.
+     */
+    public function updateGeneral(
+        User $user,
+        Application $application
+    ): bool {
+        return $this->viewGeneralFull($user, $application);
+    }
+
+    /**
+     * Переписка со страховой компанией.
+     *
+     * Только СТО или только СПМ — доступа нет.
+     * Дополнительная разрешающая роль филиала сохраняет доступ.
+     */
+    public function viewCorrespondence(
+        User $user,
+        Application $application
+    ): bool {
+        return $this->view($user, $application)
+            && $this->viewGeneralFull($user, $application);
+    }
+
+    /**
+     * Отдельная вкладка истории дела.
+     * Историю внутри таблиц этим правилом не ограничиваем.
+     */
+    public function viewHistory(
+        User $user,
+        Application $application
+    ): bool {
+        return $this->view($user, $application)
+            && $this->viewGeneralFull($user, $application);
+    }
+    /**
+     * Смена основного статуса дела.
+     *
+     * Разрешено:
+     * - системному администратору через before();
+     * - директору филиала;
+     * - МРК, назначенному в это дело;
+     * - наставнику, назначенному в это дело.
+     */
+    public function changeStatus(
+        User $user,
+        Application $application
+    ): bool {
+        if ($this->isAssignedMrkOrMentor($user, $application)) {
+            return true;
+        }
+
+        return $this->hasOwnerRoleInApplicationBranch(
+            $user,
+            $application
+        );
+    }
+
+    /**
+     * Смена финансового статуса дела.
+     */
+    public function changeFinanceStatus(
+        User $user,
+        Application $application
+    ): bool {
+        if ($this->isAssignedMrkOrMentor($user, $application)) {
+            return true;
+        }
+
+        return $this->hasOwnerRoleInApplicationBranch(
+            $user,
+            $application
+        );
+    }
+
+    protected function isAssignedMrkOrMentor(
+        User $user,
+        Application $application
+    ): bool {
+        $userId = (int) $user->id;
+        $attributes = $application->getAttributes();
+
+        $mrkId = (int) (
+            $attributes['id_MRK']
+            ?? $attributes['mrk_id']
+            ?? $attributes['mrk_user_id']
+            ?? 0
+        );
+
+        $mentorId = (int) (
+            $attributes['id_mentor']
+            ?? $attributes['mentor_id']
+            ?? 0
+        );
+
+        return $userId > 0
+            && (
+                $userId === $mrkId
+                || $userId === $mentorId
+            );
+    }
+
+    protected function hasOwnerRoleInApplicationBranch(
+        User $user,
+        Application $application
+    ): bool {
+        $attributes = $application->getAttributes();
+
+        $branchId = (int) (
+            $attributes['our_company']
+            ?? $attributes['our_company_id']
+            ?? $attributes['id_our_company']
+            ?? 0
+        );
+
+        if ($branchId <= 0) {
+            return false;
+        }
+
+        return $user->hasBranchRole(
+            'owner',
+            $branchId
+        );
+    }
+
 }

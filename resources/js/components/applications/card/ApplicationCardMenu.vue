@@ -15,20 +15,25 @@
 </template>
 
 <script setup>
-import { nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
-defineProps({
+const props = defineProps({
     applicationId: {
         type: Number,
         required: true,
+    },
+
+    permissions: {
+        type: Object,
+        default: () => ({}),
     },
 });
 
 const route = useRoute();
 const scrollContainer = ref(null);
 
-const tabs = [
+const allTabs = [
     {
         id: 'general',
         label: 'Основное',
@@ -46,6 +51,7 @@ const tabs = [
         label: 'Переписка с СК',
         icon: 'bi bi-chat-left-text',
         routeName: 'applications.correspondence',
+        permission: 'correspondence',
     },
     {
         id: 'estimate',
@@ -64,11 +70,28 @@ const tabs = [
         label: 'История',
         icon: 'bi bi-clock-history',
         routeName: 'applications.history',
+        permission: 'history',
     },
 ];
 
+const tabs = computed(() => {
+    return allTabs.filter(tab => {
+        if (!tab.permission) {
+            return true;
+        }
+
+        // Пока разрешения не загружены, закрытые вкладки
+        // не показываем даже на короткое время.
+        return props.permissions?.[tab.permission] === true;
+    });
+});
+
 watch(
-    () => route.fullPath,
+    [
+        () => route.fullPath,
+        () => props.applicationId,
+        () => tabs.value.map(tab => tab.id).join(','),
+    ],
     async () => {
         await nextTick();
 
@@ -79,7 +102,8 @@ watch(
                 block: 'nearest',
                 inline: 'center',
             });
-    }
+    },
+    { immediate: true }
 );
 </script>
 

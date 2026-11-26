@@ -48,8 +48,24 @@ class AuthController extends Controller
                 'short_name' => $user->short_name,
                 'email' => $user->email,
                 'phone' => $user->phone,
+
+                'user_group_id' => $user->user_group_id !== null
+                    ? (int) $user->user_group_id
+                    : null,
+
                 'role' => $user->group?->code,
                 'role_name' => $user->group?->name,
+
+                'is_system_admin' => (bool) $user->isSystemAdmin(),
+
+                'menu_permissions' => $user->menuPermissions(),
+                'is_sto' => method_exists($user, 'isSto')
+                    ? (bool) $user->isSto()
+                    : (int) ($user->user_group_id ?? $user->GroupId ?? 0) === 8,
+
+                'is_spm' => method_exists($user, 'isSpm')
+                    ? (bool) $user->isSpm()
+                    : (int) ($user->user_group_id ?? $user->GroupId ?? 0) === 9,
             ],
         ]);
     }
@@ -62,18 +78,32 @@ class AuthController extends Controller
         /** @var User $user */
         $user = $request->user()->load('group');
 
-        return response()->json([
-            'id' => $user->id,
-            'name' => $user->name,
-            'last_name' => $user->last_name,
-            'patronymic' => $user->patronymic,
-            'full_name' => $user->full_name,
-            'short_name' => $user->short_name,
-            'email' => $user->email,
-            'phone' => $user->phone,
-            'role' => $user->group?->code,
-            'role_name' => $user->group?->name,
-        ]);
+        return response()
+            ->json([
+                'id' => $user->id,
+                'name' => $user->name,
+                'last_name' => $user->last_name,
+                'patronymic' => $user->patronymic,
+                'full_name' => $user->full_name,
+                'short_name' => $user->short_name,
+                'email' => $user->email,
+                'phone' => $user->phone,
+
+                // Основная группа пользователя.
+                'user_group_id' => $user->user_group_id !== null
+                    ? (int) $user->user_group_id
+                    : null,
+
+                'role' => $user->group?->code,
+                'role_name' => $user->group?->name,
+
+                // Авторитетная проверка из модели User.
+                'is_system_admin' => (bool) $user->isSystemAdmin(),
+
+                // Готовые разрешения меню от backend.
+                'menu_permissions' => $user->menuPermissions(),
+            ])
+            ->header('Cache-Control', 'private, no-store');
     }
 
     /**

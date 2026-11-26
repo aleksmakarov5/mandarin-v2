@@ -2,14 +2,23 @@
     <div class="status-changers-wrapper w-100 d-flex align-items-center gap-1">
         <!-- 1. ОСНОВНОЙ СТАТУС ДЕЛА -->
         <div class="status-col flex-grow-1">
-            <div class="dropdown w-100">
+            <div v-if="canChangeStatus" class="dropdown w-100">
                 <button
                     class="status-pill-btn dropdown-toggle d-flex align-items-center justify-content-between shadow-sm w-100"
                     type="button" data-bs-toggle="dropdown" aria-expanded="false"
                     :title="currentStatus?.name || 'Без статуса'" :style="{
-                        backgroundColor: formatColor(currentStatus?.bg_color, '#bae6fd'),
-                        color: formatColor(currentStatus?.text_color, '#0369a1'),
-                        borderColor: formatColor(currentStatus?.bg_color, '#7dd3fc'),
+                        backgroundColor: formatColor(
+                            currentStatus?.bg_color,
+                            '#bae6fd'
+                        ),
+                        color: formatColor(
+                            currentStatus?.text_color,
+                            '#0369a1'
+                        ),
+                        borderColor: formatColor(
+                            currentStatus?.bg_color,
+                            '#7dd3fc'
+                        ),
                     }">
                     <span class="status-title-text">
                         {{ currentStatus?.name || 'Без статуса' }}
@@ -22,12 +31,18 @@
                             class="dropdown-item status-touch-item d-flex align-items-center justify-content-between"
                             type="button" :title="status.name" @click="$emit('change', status)">
                             <span class="d-flex align-items-center text-truncate me-2">
-                                <span class="status-dot me-2 flex-shrink-0"
-                                    :style="{ backgroundColor: formatColor(status.bg_color, '#94a3b8') }"></span>
-                                <span class="text-truncate status-item-name">{{ status.name }}</span>
+                                <span class="status-dot me-2 flex-shrink-0" :style="{
+                                    backgroundColor: formatColor(
+                                        status.bg_color,
+                                        '#94a3b8'
+                                    ),
+                                }"></span>
+
+                                <span class="text-truncate status-item-name">
+                                    {{ status.name }}
+                                </span>
                             </span>
 
-                            <!-- Норматив времени в рабочих днях -->
                             <span v-if="status.time"
                                 class="badge bg-light text-muted border font-monospace ms-auto flex-shrink-0 status-time-badge">
                                 {{ status.time }} дн.
@@ -36,42 +51,79 @@
                     </li>
                 </ul>
             </div>
+
+            <!-- Только просмотр -->
+            <div v-else class="status-readonly-pill" :title="currentStatus?.name || 'Без статуса'" :style="{
+                backgroundColor: formatColor(
+                    currentStatus?.bg_color,
+                    '#f1f5f9'
+                ),
+                color: formatColor(
+                    currentStatus?.text_color,
+                    '#475569'
+                ),
+                borderColor: formatColor(
+                    currentStatus?.bg_color,
+                    '#cbd5e1'
+                ),
+            }">
+                {{ currentStatus?.name || 'Без статуса' }}
+            </div>
         </div>
 
         <!-- 2. ФИНАНСОВЫЙ СТАТУС (Если ID > 1) -->
         <div v-if="isFinanceStatusVisible" class="status-col flex-grow-1">
-            <div class="dropdown w-100">
-                <button
-                    class="status-pill-btn dropdown-toggle d-flex align-items-center justify-content-between shadow-sm w-100"
-                    type="button" data-bs-toggle="dropdown" aria-expanded="false"
-                    :title="currentFinanceStatus?.name || 'Фин. статус'" :style="{
-                        backgroundColor: formatColor(currentFinanceStatus?.bg_color, '#e0e7ff'),
-                        color: formatColor(currentFinanceStatus?.text_color, '#4338ca'),
-                        borderColor: formatColor(currentFinanceStatus?.bg_color, '#c7d2fe'),
-                    }">
-                    <span class="status-title-text">
-                        {{ currentFinanceStatus?.name || 'Фин. статус' }}
-                    </span>
-                </button>
+            <div v-if="canChangeFinanceStatus" class="dropdown w-100">
+                <div class="dropdown w-100">
+                    <button
+                        class="status-pill-btn dropdown-toggle d-flex align-items-center justify-content-between shadow-sm w-100"
+                        type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                        :title="currentFinanceStatus?.name || 'Фин. статус'" :style="{
+                            backgroundColor: formatColor(currentFinanceStatus?.bg_color, '#e0e7ff'),
+                            color: formatColor(currentFinanceStatus?.text_color, '#4338ca'),
+                            borderColor: formatColor(currentFinanceStatus?.bg_color, '#c7d2fe'),
+                        }">
+                        <span class="status-title-text">
+                            {{ currentFinanceStatus?.name || 'Фин. статус' }}
+                        </span>
+                    </button>
 
-                <ul class="dropdown-menu dropdown-menu-end shadow border-0 py-1 status-dropdown-menu">
-                    <li v-for="fStatus in financeStatuses" :key="fStatus.id" class="status-dropdown-li">
-                        <button
-                            class="dropdown-item status-touch-item d-flex align-items-center justify-content-between"
-                            type="button" :title="fStatus.name" @click="$emit('change-finance', fStatus)">
-                            <span class="d-flex align-items-center text-truncate me-2">
-                                <span class="status-dot me-2 flex-shrink-0"
-                                    :style="{ backgroundColor: formatColor(fStatus.bg_color, '#94a3b8') }"></span>
-                                <span class="text-truncate status-item-name">{{ fStatus.name }}</span>
-                            </span>
+                    <ul class="dropdown-menu dropdown-menu-end shadow border-0 py-1 status-dropdown-menu">
+                        <li v-for="fStatus in financeStatuses" :key="fStatus.id" class="status-dropdown-li">
+                            <button
+                                class="dropdown-item status-touch-item d-flex align-items-center justify-content-between"
+                                type="button" :title="fStatus.name" @click="$emit('change-finance', fStatus)">
+                                <span class="d-flex align-items-center text-truncate me-2">
+                                    <span class="status-dot me-2 flex-shrink-0"
+                                        :style="{ backgroundColor: formatColor(fStatus.bg_color, '#94a3b8') }"></span>
+                                    <span class="text-truncate status-item-name">{{ fStatus.name }}</span>
+                                </span>
 
-                            <span v-if="fStatus.time || fStatus.fin_time"
-                                class="badge bg-light text-muted border font-monospace ms-auto flex-shrink-0 status-time-badge">
-                                {{ fStatus.time || fStatus.fin_time }} дн.
-                            </span>
-                        </button>
-                    </li>
-                </ul>
+                                <span v-if="fStatus.time || fStatus.fin_time"
+                                    class="badge bg-light text-muted border font-monospace ms-auto flex-shrink-0 status-time-badge">
+                                    {{ fStatus.time || fStatus.fin_time }} дн.
+                                </span>
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div v-else class="status-readonly-pill" :title="currentFinanceStatus?.name || 'Фин. статус'" :style="{
+                backgroundColor: formatColor(
+                    currentFinanceStatus?.bg_color,
+                    '#e0e7ff'
+                ),
+                color: formatColor(
+                    currentFinanceStatus?.text_color,
+                    '#4338ca'
+                ),
+                borderColor: formatColor(
+                    currentFinanceStatus?.bg_color,
+                    '#c7d2fe'
+                ),
+            }">
+                {{ currentFinanceStatus?.name || 'Фин. статус' }}
             </div>
         </div>
     </div>
@@ -87,6 +139,15 @@ const props = defineProps({
     financeStatusId: { type: [Number, String], default: null },
     currentFinanceStatus: { type: Object, default: null },
     financeStatuses: { type: Array, default: () => [] },
+    canChangeStatus: {
+        type: Boolean,
+        default: false,
+    },
+
+    canChangeFinanceStatus: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 defineEmits(['change', 'change-finance']);
@@ -223,5 +284,23 @@ function formatColor(color, fallback) {
         font-size: 0.72rem;
         padding: 3px 6px;
     }
+}
+
+.status-readonly-pill {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-width: 0;
+    height: 26px;
+    padding: 0 8px;
+    overflow: hidden;
+    border: 1px solid transparent;
+    border-radius: 13px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 </style>

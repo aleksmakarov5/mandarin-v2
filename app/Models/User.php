@@ -286,4 +286,67 @@ class User extends Authenticatable
         return !$this->isSystemAdmin()
             && $this->hasBranchRole(5, $branchId);
     }
+
+    /**
+     * Есть ли у пользователя активная роль,
+     * отличная от СТО и запчастиста.
+     */
+    public function hasBackOfficeRole(): bool
+    {
+        return $this->branchRoles()
+            ->where('is_active', true)
+            ->whereNotIn('user_group_id', [8, 9])
+            ->whereHas('role')
+            ->exists();
+    }
+
+    /**
+     * Режим пользователя для главного меню.
+     */
+    public function menuMode(): string
+    {
+        if ($this->isSystemAdmin()) {
+            return 'admin';
+        }
+
+        if ($this->hasBackOfficeRole()) {
+            return 'backoffice';
+        }
+
+        if ($this->isSpm()) {
+            return 'spm';
+        }
+
+        if ($this->isSto()) {
+            return 'service';
+        }
+
+        return 'none';
+    }
+
+    /**
+     * Разрешения меню.
+     */
+    public function menuPermissions(): array
+    {
+        $mode = $this->menuMode();
+
+        return [
+            'requests' => in_array($mode, ['admin', 'backoffice', 'spm', 'service'], true),
+            'applications' => in_array($mode, ['admin', 'backoffice', 'spm', 'service'], true),
+            'chat' => $mode !== 'none',
+            'books' => $mode !== 'none',
+            'help' => $mode !== 'none',
+
+            'warehouse' => in_array($mode, ['admin', 'backoffice', 'spm'], true),
+
+            'acceptance' => in_array($mode, ['admin', 'backoffice'], true),
+            'archive' => in_array($mode, ['admin', 'backoffice'], true),
+            'trash' => in_array($mode, ['admin', 'backoffice'], true),
+            'mail' => in_array($mode, ['admin', 'backoffice'], true),
+            'finance' => in_array($mode, ['admin', 'backoffice'], true),
+
+            'admin' => $mode === 'admin',
+        ];
+    }
 }

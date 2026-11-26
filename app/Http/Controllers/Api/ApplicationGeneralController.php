@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use app\Providers\AuthServiceProvider;
 use Illuminate\Support\Facades\Gate;
+use App\Services\ApplicationGeneralAccess;
 
 class ApplicationGeneralController extends Controller
 {
@@ -64,7 +65,13 @@ class ApplicationGeneralController extends Controller
         $timers = $timerService->calculate($app);
 
         $statusId = (int) ($app->id_status ?? $app->status_id ?? 0);
-        $finStatusId = (int) ($app->finance_status_id ?? $app->id_finance_status ?? 0);
+        $attributes = $app->getAttributes();
+
+        $finStatusId = (int) (
+            $attributes['finance_status_id']
+            ?? $attributes['id_finance_status']
+            ?? 0
+        );
 
         // Расчет финансовых показателей для карточки
         $sumSk = (float) ($app->sum_sk ?? 0);
@@ -104,6 +111,24 @@ class ApplicationGeneralController extends Controller
             'remains' => $remains,
             'remains_percent' => $sumSk > 0 ? (int) round(($remains / $sumSk) * 100) : 0,
         ]);
+        $result = app(ApplicationGeneralAccess::class)->filter(
+            $app,
+            $result
+        );
+
+        // Добавляем права именно в массив, который отправляется клиенту.
+// Существующие permissions.general и permissions.menu сохраняются.
+        $result['permissions']['status'] = [
+            'change_status' => Gate::allows(
+                'changeStatus',
+                $app
+            ),
+
+            'change_finance_status' => Gate::allows(
+                'changeFinanceStatus',
+                $app
+            ),
+        ];
 
         return response()->json([
             'data' => $result,
@@ -113,6 +138,13 @@ class ApplicationGeneralController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $application = Application::query()->findOrFail($id);
+
+        Gate::authorize('view', $application);
+        Gate::authorize('updateGeneral', $application);
+
+        $data = $request->validate([
+            // текущие правила
+        ]);
 
         $data = $request->validate([
             // Автомобиль

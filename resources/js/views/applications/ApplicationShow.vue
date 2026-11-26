@@ -1,28 +1,33 @@
 <template>
-    <div class="application-card-layout d-flex flex-column h-100 bg-light">
-        <ApplicationCardHeader :application-id="applicationId" />
-        <!-- Краткая сводка (Summary) со статусами и тайм-барами -->
-        <!-- Краткая сводка (Summary) со статусами и тайм-барами -->
-        <ApplicationCardSummary :application="cardData" :insurance-name="currentInsuranceName"
-            :insurance-companies="options.insurance_companies" :current-status="currentStatus"
-            :all-statuses="options.statuses" :all-finance-statuses="options.finance_statuses"
-            @status-change="onStatusChanged" @finance-status-change="onFinanceStatusChanged" />
+    <div class="application-card-layout h-100 bg-light">
+        <!-- Эта часть уходит вверх при прокрутке -->
+        <div class="application-card-top">
+            <ApplicationCardHeader :application-id="applicationId" />
 
+            <ApplicationCardSummary :application="cardData" :insurance-name="currentInsuranceName"
+                :insurance-companies="options.insurance_companies" :current-status="currentStatus"
+                :all-statuses="options.statuses" :all-finance-statuses="options.finance_statuses"
+                :permissions="cardData.permissions?.status ?? {}" @status-change="onStatusChanged"
+                @finance-status-change="onFinanceStatusChanged" />
 
-        <!-- 2. ДВЕ ПОЛОСЫ ТАЙМЕРОВ (ШИРИНА 100%, ТОЛЩИНА 2 ММ) -->
-        <ApplicationDoubleProgressBar v-if="application?.id || cardData?.id"
-            :app-timer="application?.app_timer || cardData?.app_timer || {}"
-            :finance-timer="application?.finance_timer || cardData?.finance_timer || {}"
-            :finance-status-id="application?.finance_status_id || cardData?.finance_status_id" />
+            <ApplicationDoubleProgressBar v-if="cardData?.id" :app-timer="cardData.app_timer || {}"
+                :finance-timer="cardData.finance_timer || {}" :finance-status-id="cardData.finance_status_id
+                    ?? cardData.id_finance_status
+                    " />
+        </div>
 
-
-        <ApplicationCardMenu v-if="hasValidApplicationId" :application-id="applicationId" />
+        <!-- Только меню остаётся сверху -->
+        <div class="application-card-sticky-menu">
+            <ApplicationCardMenu v-if="hasValidApplicationId" :application-id="applicationId"
+                :permissions="cardData.permissions?.menu ?? {}" />
+        </div>
 
         <div v-if="moduleError" class="alert alert-danger rounded-0 border-start-0 border-end-0 py-2 px-3 mb-0">
             <pre class="module-error mb-0">{{ moduleError }}</pre>
         </div>
 
-        <main class="flex-grow-1 overflow-auto p-2 p-md-3">
+        <!-- Собственную прокрутку main убираем -->
+        <main class="application-card-content p-2 p-md-3">
             <div v-if="!hasValidApplicationId" class="alert alert-danger">
                 В адресе карточки указан некорректный ID дела.
             </div>
@@ -247,9 +252,58 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/*
+ * Вся карточка — единая область прокрутки.
+ * Финансовая шапка, сводка и таймеры прокручиваются
+ * вместе с содержимым активной вкладки.
+ */
 .application-card-layout {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
     min-height: 0;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Верхние элементы не закрепляются. */
+.application-card-top {
+    position: relative;
+}
+
+/*
+ * Убираем возможное старое sticky-позиционирование
+ * финансовой шапки, если оно осталось в её компоненте.
+ */
+.application-card-top :deep(.application-finance-header) {
+    position: static;
+    top: auto;
+}
+
+/*
+ * Меню прилипает к верхней границе области карточки.
+ * Высота остальных элементов шапки не учитывается:
+ * при прокрутке они полностью уходят из видимой области.
+ */
+.application-card-sticky-menu {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    width: 100%;
+    background: #ffffff;
+    box-shadow: 0 3px 8px rgb(15 23 42 / 8%);
+}
+
+/* Внутри main больше нет отдельного скролла. */
+.application-card-content {
+    min-width: 0;
+    overflow: visible;
+    box-sizing: border-box;
 }
 
 .module-error {

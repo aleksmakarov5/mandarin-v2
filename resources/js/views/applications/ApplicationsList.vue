@@ -12,7 +12,9 @@
                         <th class="col-dog text-center">Дог</th>
                         <th class="col-status text-center">Статус</th>
                         <!-- Столбец Согл/Опл отображается только во вкладке «Направления» -->
-                        <th v-if="currentTab === 'applications'" class="col-soglas text-center">Согл/Опл</th>
+                        <th v-if="showFinanceStatusColumn" class="col-soglas text-center">
+                            Согл/Опл
+                        </th>
                         <th class="col-id text-center">#</th>
                         <th class="col-mrk">МРК</th>
                         <th class="col-city">Город</th>
@@ -20,8 +22,12 @@
                         <th class="col-sto text-center">СТО</th>
                         <th class="col-lawyer text-center">Юрист</th>
                         <th class="col-ub">№ убытка</th>
-                        <th class="col-client">Клиент</th>
-                        <th class="col-phone">Телефон</th>
+                        <th v-if="canViewSensitiveRegistryColumns" class="col-client">
+                            Клиент
+                        </th>
+                        <th v-if="canViewSensitiveRegistryColumns" class="col-phone">
+                            Телефон
+                        </th>
                         <th class="col-car">Авто</th>
                         <th class="col-gnz">ГРЗ</th>
                         <th class="col-date text-center">Дата</th>
@@ -29,7 +35,7 @@
                         <th class="col-stoa">СТОА</th>
 
                         <!-- Финансовые столбцы в «Направлениях» и «Архиве» -->
-                        <template v-if="hasFinancialColumns">
+                        <template v-if="showFinancialColumns">
                             <th class="col-fin text-end">Сумма СК</th>
                             <th class="col-fin text-end">Сумма З/Ч</th>
                             <th class="col-fin text-end">Ремонт</th>
@@ -39,7 +45,7 @@
                             <th class="col-fin-wide text-end">Остаток</th>
                         </template>
 
-                        <th class="col-trash text-center"></th>
+                        <th class="col-trash text-center" v-if="canViewSensitiveRegistryColumns"></th>
                         <th class="col-vin">VIN</th>
                     </tr>
 
@@ -58,7 +64,7 @@
                                 v-model="filters.status_ids" @change="fetchItems(1)" min-width="190px" />
                         </th>
                         <!-- Фильтр фин. статуса только в Направлениях -->
-                        <th v-if="currentTab === 'applications'" class="col-soglas">
+                        <th v-if="showFinanceStatusColumn" class="col-soglas">
                             <MultiSelectDropdown id="f-fin-status" placeholder="Согл/Опл"
                                 :options="financeStatusOptions" v-model="filters.finance_status_ids"
                                 @change="fetchItems(1)" min-width="190px" />
@@ -88,11 +94,11 @@
                             <input v-model="filters.ub_number" @input="debounceFetch" type="text"
                                 class="form-control-table" placeholder="№ убытка" />
                         </th>
-                        <th class="col-client">
+                        <th class="col-client" v-if="canViewSensitiveRegistryColumns">
                             <input v-model="filters.ClientName" @input="debounceFetch" type="text"
                                 class="form-control-table" placeholder="Клиент" />
                         </th>
-                        <th class="col-phone">
+                        <th class="col-phone" v-if="canViewSensitiveRegistryColumns">
                             <input v-model="filters.ClientPhone" @input="debounceFetch" type="text"
                                 class="form-control-table" placeholder="Телефон" />
                         </th>
@@ -115,7 +121,7 @@
                                 v-model="filters.branch_ids" @change="fetchItems(1)" min-width="180px" />
                         </th>
 
-                        <template v-if="hasFinancialColumns">
+                        <template v-if="showFinancialColumns">
                             <th class="col-fin"></th>
                             <th class="col-fin"></th>
                             <th class="col-fin"></th>
@@ -125,7 +131,7 @@
                             <th class="col-fin-wide"></th>
                         </template>
 
-                        <th class="col-trash"></th>
+                        <th class="col-trash" v-if="canViewSensitiveRegistryColumns"></th>
                         <th class="col-vin">
                             <input v-model="filters.vin" @input="debounceFetch" type="text" class="form-control-table"
                                 placeholder="VIN" />
@@ -158,7 +164,7 @@
                         </td>
 
                         <!-- 4. СОГЛ/ОПЛ (ФИН. СТАТУС ТОЛЬКО В НАПРАВЛЕНИЯХ) -->
-                        <td v-if="currentTab === 'applications'" class="col-soglas text-center p-1">
+                        <td v-if="showFinanceStatusColumn" class="col-soglas text-center p-1">
                             <div v-if="hasActiveFinanceStatus(item)" class="status-compact-pill cell-truncate" :style="{
                                 backgroundColor: item.finance_status?.bg_color || item.financeStatus?.bg_color || item.soglas_bg || '#dcfce7',
                                 color: item.finance_status?.text_color || item.financeStatus?.text_color || item.soglas_color || '#15803d',
@@ -226,7 +232,7 @@
                         </td>
 
                         <!-- 12. Клиент -->
-                        <td class="col-client">
+                        <td v-if="canViewSensitiveRegistryColumns" class="col-client">
                             <div class="cell-truncate text-uppercase"
                                 @mouseenter="handleCellMouseEnter($event, item.ClientName)"
                                 @mouseleave="handleCellMouseLeave">
@@ -235,12 +241,13 @@
                         </td>
 
                         <!-- 13. Телефон (целиком) -->
-                        <td class="col-phone text-nowrap">
+                        <td v-if="canViewSensitiveRegistryColumns" class="col-phone text-nowrap">
                             <a v-if="item.ClientPhone" :href="'tel:' + item.ClientPhone"
                                 class="text-decoration-none text-dark fw-medium text-nowrap"
                                 style="font-size: 0.72rem; letter-spacing: -0.2px;" @click.stop>
                                 {{ item.ClientPhone }}
                             </a>
+
                             <span v-else class="text-muted">—</span>
                         </td>
 
@@ -293,7 +300,7 @@
                         </td>
 
                         <!-- Финансовые колонки -->
-                        <template v-if="hasFinancialColumns">
+                        <template v-if="showFinancialColumns">
                             <td class="col-fin text-end fw-medium">
                                 <div class="cell-truncate">{{ formatMoney(item.sum_sk) }} р.</div>
                             </td>
@@ -319,7 +326,7 @@
                         </template>
 
                         <!-- Корзина -->
-                        <td class="col-trash text-center p-0" @click.stop>
+                        <td class="col-trash text-center p-0" @click.stop v-if="canViewSensitiveRegistryColumns">
                             <button class="btn btn-link btn-sm text-secondary p-0" @click="moveToTrash(item)">
                                 <i class="bi bi-trash3"></i>
                             </button>
@@ -335,8 +342,7 @@
                     </tr>
 
                     <tr v-if="items.length === 0 && !loading">
-                        <td :colspan="currentTab === 'applications' ? 27 : (hasFinancialColumns ? 26 : 19)"
-                            class="text-center py-5 text-muted">
+                        <td :colspan="visibleTableColumnCount" class="text-center py-5 text-muted">
                             Дела не найдены
                         </td>
                     </tr>
@@ -379,7 +385,8 @@
         <!-- 3. МОБИЛЬНЫЙ СПИСОК ПЛИТОК/КАРТОЧЕК (< 992px, ОТДЕЛЬНЫЙ МОДУЛЬ) -->
         <div class="mobile-registry-list d-lg-none px-1 py-1">
             <RegistryMobileCard v-for="item in items" :key="'mob-' + item.id" :item="item"
-                :has-financial-columns="hasFinancialColumns" @open="openApplication" />
+                :has-financial-columns="showFinancialColumns" :can-view-sensitive-data="canViewSensitiveRegistryColumns"
+                @open="openApplication" />
             <div v-if="items.length === 0 && !loading" class="text-center py-5 text-muted bg-white rounded shadow-sm">
                 <i class="bi bi-inbox fs-2 d-block text-secondary mb-1"></i>
                 Дела не найдены
@@ -402,6 +409,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue';
+import { useAuthStore } from '../../stores/auth';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 
@@ -415,9 +423,90 @@ import RegistryTooltip from '../../components/applications/registry/RegistryTool
 
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 
+const currentUser = computed(() => authStore.user || {});
+
+const currentRole = computed(() => {
+    return String(
+        currentUser.value.role
+        || currentUser.value.group?.code
+        || ''
+    ).toLowerCase();
+});
+
+const currentGroupId = computed(() => {
+    return Number(
+        currentUser.value.user_group_id
+        ?? currentUser.value.GroupId
+        ?? currentUser.value.group_id
+        ?? 0
+    );
+});
+
+const isServiceUser = computed(() => {
+    return Boolean(currentUser.value.is_sto)
+        || Boolean(currentUser.value.is_service)
+        || currentGroupId.value === 8
+        || ['service', 'sto', 'sto_user'].includes(currentRole.value);
+});
+
+const isSpmUser = computed(() => {
+    return Boolean(currentUser.value.is_spm)
+        || currentGroupId.value === 9
+        || [
+            'spm',
+            'parts',
+            'parts_manager',
+            'zapchastist',
+            'запчастист',
+        ].includes(currentRole.value);
+});
+
+const canViewSensitiveRegistryColumns = computed(() => {
+    return !isServiceUser.value && !isSpmUser.value;
+});
 const currentTab = computed(() => route.name || 'requests');
-const hasFinancialColumns = computed(() => ['applications', 'archive'].includes(currentTab.value));
+const hasFinancialColumns = computed(() => {
+    return ['applications', 'archive'].includes(currentTab.value);
+});
+
+const showFinancialColumns = computed(() => {
+    return hasFinancialColumns.value
+        && canViewSensitiveRegistryColumns.value;
+});
+
+const showFinanceStatusColumn = computed(() => {
+    return currentTab.value === 'applications'
+        && canViewSensitiveRegistryColumns.value;
+});
+
+const visibleTableColumnCount = computed(() => {
+    // Основные колонки без «Согл/Опл» и без финансовой группы:
+    // #, Дог, Статус, ID, МРК, Город, СК, СТО,
+    // Юрист, № убытка, Клиент, Телефон, Авто, ГРЗ,
+    // Дата, Тип, СТОА, Корзина, VIN.
+    let count = 19;
+
+    // Клиент и телефон скрываются для СТО и запчастиста.
+    if (!canViewSensitiveRegistryColumns.value) {
+        count -= 2;
+    }
+
+    // «Согл/Опл» показываем только в Направлениях
+    // для сотрудников бэк-офиса.
+    if (showFinanceStatusColumn.value) {
+        count += 1;
+    }
+
+    // Сумма СК, З/Ч, Ремонт, Затраты,
+    // Оплата СК, Оплата СТО, Остаток.
+    if (showFinancialColumns.value) {
+        count += 7;
+    }
+
+    return count;
+});
 
 const items = ref([]);
 const loading = ref(false);

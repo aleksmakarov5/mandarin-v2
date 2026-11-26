@@ -1,8 +1,8 @@
 <template>
     <section class="application-card-summary bg-white border-bottom flex-shrink-0">
-        <div v-if="hasData" class="row g-2 align-items-center">
+        <div v-if="hasData" class="row g-2 align-items-start">
             <!-- 1. Автомобиль -->
-            <div class="col-12 col-md-6 col-lg-3">
+            <div class="col-12 col-md-6 col-lg-2">
                 <div class="summary-primary">
                     <i class="bi bi-car-front-fill text-primary"></i>
                     <span class="fw-bold text-truncate"
@@ -29,11 +29,11 @@
             </div>
 
             <!-- 2. Клиент / Представитель -->
-            <div class="col-12 col-md-6 col-lg-3">
+            <div v-if="canViewClient" class="col-12 col-md-6 col-lg-3">
                 <div class="summary-primary">
                     <i class="bi bi-person-fill text-success"></i>
                     <span class="fw-semibold text-truncate">
-                        {{ isRepresentative ? 'Представитель: ' : '' }}{{ clientNameDisplay }}
+                        {{ isRepresentative ? 'Пред.: ' : '' }}{{ clientNameDisplay }}
                     </span>
                 </div>
                 <div class="summary-secondary">
@@ -72,13 +72,25 @@
                 </div>
             </div>
 
+            <!-- Заметка по делу: только для разрешённых сотрудников -->
+            <div v-if="canViewInternalNote" class="col-12 col-md-6 col-lg-2">
+
+
+                <div class="summary-note" :class="{ 'summary-note-empty': !internalNote }"
+                    :title="internalNote || undefined">
+                    <i class="bi bi-sticky text-warning" aria-hidden="true"></i>
+                    {{ internalNote || 'Заметка не заполнена' }}
+                </div>
+            </div>
+
             <!-- 4. Статусы и Тайм-бары -->
-            <div class="col-12 col-md-6 col-lg-3 d-flex justify-content-lg-end align-items-center">
+            <div class="col-12 col-md-6 col-lg-2 d-flex justify-content-lg-end align-items-center">
                 <ApplicationStatusChanger :current-status="currentStatus" :statuses="allStatuses"
                     :app-timer="appTimerData" :finance-status-id="financeStatusId"
                     :current-finance-status="currentFinanceStatus" :finance-statuses="allFinanceStatuses"
-                    :finance-timer="financeTimerData" @change="handleStatusChange"
-                    @change-finance="handleFinanceStatusChange" />
+                    :finance-timer="financeTimerData" :can-change-status="permissions.change_status === true"
+                    :can-change-finance-status="permissions.change_finance_status === true
+                        " @change="handleStatusChange" @change-finance="handleFinanceStatusChange" />
             </div>
         </div>
     </section>
@@ -134,8 +146,32 @@ const props = defineProps({
     allFinanceStatuses: { type: Array, default: () => [] },
     insuranceName: { type: String, default: 'Страховая компания не выбрана' },
     insuranceCompanies: { type: Array, default: () => [] },
+    permissions: {
+        type: Object,
+        default: () => ({}),
+    },
 });
 
+
+const generalPermissions = computed(() => {
+    return props.application?.permissions?.general ?? {};
+});
+
+const canViewClient = computed(() => {
+    return generalPermissions.value.view_client === true;
+});
+
+const canViewInternalNote = computed(() => {
+    return generalPermissions.value.view_internal_note === true;
+});
+
+const internalNote = computed(() => {
+    if (!canViewInternalNote.value) return '';
+
+    return String(
+        props.application?.comment_true ?? ''
+    ).trim();
+});
 const emit = defineEmits(['status-change', 'finance-status-change']);
 
 const hasData = computed(() => Object.keys(props.application || {}).length > 0);
@@ -396,5 +432,30 @@ const plateParts = computed(() => {
     display: inline-block;
     vertical-align: middle;
     letter-spacing: 0.2px;
+}
+
+.summary-note {
+    max-height: 50px;
+    margin-top: 3px;
+    margin-left: 20px;
+    padding-right: 5px;
+    overflow-y: auto;
+    color: #334155;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    scrollbar-width: thin;
+}
+
+.summary-note-empty {
+    color: #94a3b8;
+    font-style: italic;
+}
+
+@media (max-width: 767.98px) {
+    .summary-note {
+        max-height: 50px;
+    }
 }
 </style>

@@ -15,7 +15,8 @@
         </div>
 
         <template v-else>
-            <div class="general-save-bar d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+            <div v-if="canEdit"
+                class="general-save-bar d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
                 <div class="small">
                     <span v-if="saveState === 'saving'" class="text-primary">
                         <span class="spinner-border spinner-border-sm me-1"></span>
@@ -41,6 +42,8 @@
                 </button>
             </div>
 
+
+
             <div v-if="saveError" class="alert alert-danger py-2">
                 <pre class="error-text mb-0">{{ saveError }}</pre>
             </div>
@@ -48,45 +51,53 @@
             <div class="row g-3">
                 <div class="col-12 col-xl-9">
                     <div class="row g-3">
-                        <div class="col-12 col-md-5">
-                            <GeneralVehicleSection :form="form" @commit="queueSave" />
+                        <!-- Видно сервису и запчастисту -->
+                        <div v-if="generalPermissions.view_vehicle" class="col-12 col-md-5">
+                            <GeneralVehicleSection :form="form" :readonly="isReadOnly" @commit="queueSave" />
                         </div>
 
-                        <div class="col-12 col-md-7">
+                        <!-- Только полный доступ -->
+                        <div v-if="generalPermissions.view_client" class="col-12 col-md-7">
                             <GeneralClientSection :form="form" @commit="queueSave" />
                         </div>
 
-
-                        <div class="col-12 col-md-5">
+                        <!-- Только полный доступ -->
+                        <div v-if="generalPermissions.view_insurance" class="col-12 col-md-5">
                             <GeneralInsuranceSection :form="form" :insurance-companies="options.insurance_companies"
                                 @commit="queueSave" />
                         </div>
 
-                        <div class="col-12 col-md-7">
+                        <!-- Видно сервису и запчастисту -->
+                        <div v-if="generalPermissions.view_branch_service_dates" class="col-12 col-md-7">
                             <GeneralLogisticsSection :form="form" :branches="options.branches" :cities="options.cities"
-                                :services="options.services" @commit="queueSave" />
+                                :services="options.services" :readonly="isReadOnly" @commit="queueSave" />
                         </div>
-                        <div class="col-12">
+
+                        <!-- Только полный доступ -->
+                        <div v-if="generalPermissions.view_passport" class="col-12">
                             <GeneralPassportSection :form="form" @commit="queueSave" />
                         </div>
                     </div>
                 </div>
 
-                <div class="col-12 col-xl-3">
-                    <GeneralStaffSection :form="form" :staff="staff" :lawyers="lawyers" @commit="queueSave"
+                <!-- Видно сервису и запчастисту -->
+                <div v-if="generalPermissions.view_responsible_employees" class="col-12 col-xl-3">
+                    <GeneralStaffSection :form="form" :staff="staff" :lawyers="lawyers" :readonly="isReadOnly"
+                        :show-internal-note="generalPermissions.view_internal_note" @commit="queueSave"
                         @new-lawyer="openLawyerModal" />
                 </div>
             </div>
         </template>
 
 
-        <LawyerCreateModal v-model:show="showLawyerModal" @created="onLawyerCreated" />
+        <LawyerCreateModal v-if="canEdit" v-model:show="showLawyerModal" @created="onLawyerCreated" />
 
     </div>
 </template>
 
 <script setup>
 import {
+    computed,
     nextTick,
     onBeforeUnmount,
     onMounted,
@@ -193,6 +204,23 @@ const options = reactive({
     insurance_companies: [],
     services: [],
 });
+
+const generalPermissions = reactive({
+    view_vehicle: false,
+    view_branch_service_dates: false,
+    view_responsible_employees: false,
+    view_client: false,
+    view_passport: false,
+    view_insurance: false,
+    view_internal_note: false,
+    edit: false,
+});
+
+const canEdit = computed(() => {
+    return generalPermissions.edit === true;
+});
+
+const isReadOnly = computed(() => !canEdit.value);
 
 const staff = reactive({
     mrk: [],
@@ -325,6 +353,23 @@ async function load() {
         // 3. ЗАТЕМ нормализуем и выставляем данные формы
         form.value = normalizeForm(applicationResponse.data.data || {});
 
+        const serverPermissions =
+            applicationResponse.data.data?.permissions?.general || {};
+
+        Object.assign(generalPermissions, {
+            view_vehicle: serverPermissions.view_vehicle === true,
+            view_branch_service_dates:
+                serverPermissions.view_branch_service_dates === true,
+            view_responsible_employees:
+                serverPermissions.view_responsible_employees === true,
+            view_client: serverPermissions.view_client === true,
+            view_passport: serverPermissions.view_passport === true,
+            view_insurance: serverPermissions.view_insurance === true,
+            view_internal_note:
+                serverPermissions.view_internal_note === true,
+            edit: serverPermissions.edit === true,
+        });
+
         // 4. Подгружаем сотрудников под уже выбранный филиал
         if (form.value.our_company) {
             await loadStaff();
@@ -370,6 +415,9 @@ async function loadStaff() {
 }
 
 function queueSave() {
+    if (!canEdit.value || loading.value) {
+        return;
+    }
     window.clearTimeout(saveTimer.value);
 
     saveTimer.value = window.setTimeout(() => {
@@ -396,6 +444,11 @@ function validPhone(value) {
 }
 
 async function saveCore(manual = false) {
+    if (!canEdit.value) {
+        saveState.value = 'saved';
+        saveError.value = '';
+        return false;
+    }
     window.clearTimeout(saveTimer.value);
 
     if (!form.value.id) {
@@ -530,6 +583,9 @@ function formatError(error) {
 }
 
 function openLawyerModal() {
+    if (!canEdit.value) {
+        return;
+    }
     Object.assign(newLawyer, {
         name: '',
         phone: '',
@@ -586,7 +642,7 @@ watch(
     () => form.value?.our_company,
     async (newBranch, oldBranch) => {
         // Игнорируем вызовы во время первичной загрузки страницы
-        if (loading.value || !form.value?.id) {
+        if (loading.value || !form.value?.id || !canEdit.value) {
             return;
         }
 
@@ -659,5 +715,65 @@ defineExpose({
     .general-save-bar .btn {
         min-height: 38px;
     }
+}
+
+.general-readonly-bar {
+    padding: 0.55rem 0.75rem;
+    color: #475569;
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.5rem;
+    font-size: 0.82rem;
+}
+
+/* Единый режим просмотра во всех дочерних разделах. */
+.application-general-tab :deep(.readonly-grid) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    min-width: 0;
+    padding: 0;
+}
+
+.application-general-tab :deep(.readonly-field) {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 5px;
+    min-width: 0;
+    margin: 10;
+    padding: 11px 0;
+    border: 0;
+    border-bottom: 1px solid #edf2f7;
+}
+
+.application-general-tab :deep(.readonly-field:first-child) {
+    padding-top: 0;
+}
+
+.application-general-tab :deep(.readonly-field:last-child) {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+.application-general-tab :deep(.readonly-field > span) {
+    display: block;
+    margin: 10;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.application-general-tab :deep(.readonly-field > strong) {
+    display: block;
+    min-width: 0;
+    margin: 10;
+    color: #1e293b;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 </style>

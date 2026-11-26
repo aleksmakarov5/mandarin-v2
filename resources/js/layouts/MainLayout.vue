@@ -58,13 +58,16 @@
                     </li>
 
                     <!-- 3. Приемка -->
-                    <li class="nav-item">
+                    <li v-if="menuPermissions.acceptance" class="nav-item">
                         <router-link to="/acceptance" class="nav-link d-flex align-items-center justify-content-between"
                             :class="{ active: isTabActive('acceptance') }" title="Приемка" @click="closeMobileSidebar">
                             <div class="d-flex align-items-center text-truncate">
                                 <i class="bi bi-clipboard-check-fill me-2 fs-6"></i>
-                                <span v-show="!isCollapsed" class="nav-text">Приемка</span>
+                                <span v-show="!isCollapsed || isMobileOpen" class="nav-text">
+                                    Приемка
+                                </span>
                             </div>
+
                             <span v-if="counts.acceptance > 0" class="badge rounded-pill bg-info text-dark badge-count">
                                 {{ counts.acceptance }}
                             </span>
@@ -72,13 +75,16 @@
                     </li>
 
                     <!-- 4. Архив -->
-                    <li class="nav-item">
+                    <li v-if="menuPermissions.archive" class="nav-item">
                         <router-link to="/archive" class="nav-link d-flex align-items-center justify-content-between"
                             :class="{ active: isTabActive('archive') }" title="Архив" @click="closeMobileSidebar">
                             <div class="d-flex align-items-center text-truncate">
                                 <i class="bi bi-archive-fill me-2 fs-6"></i>
-                                <span v-show="!isCollapsed" class="nav-text">Архив</span>
+                                <span v-show="!isCollapsed || isMobileOpen" class="nav-text">
+                                    Архив
+                                </span>
                             </div>
+
                             <span v-if="counts.archive > 0" class="badge rounded-pill bg-secondary badge-count">
                                 {{ counts.archive }}
                             </span>
@@ -86,20 +92,22 @@
                     </li>
 
                     <!-- 5. Корзина -->
-                    <li class="nav-item">
+                    <li v-if="menuPermissions.trash" class="nav-item">
                         <router-link to="/trash" class="nav-link d-flex align-items-center justify-content-between"
                             :class="{ active: isTabActive('trash') }" title="Корзина" @click="closeMobileSidebar">
                             <div class="d-flex align-items-center text-truncate">
                                 <i class="bi bi-trash3-fill me-2 fs-6"></i>
-                                <span v-show="!isCollapsed" class="nav-text">Корзина</span>
+                                <span v-show="!isCollapsed || isMobileOpen" class="nav-text">
+                                    Корзина
+                                </span>
                             </div>
+
                             <span v-if="counts.trash > 0" class="badge rounded-pill bg-danger badge-count">
                                 {{ counts.trash }}
                             </span>
                         </router-link>
                     </li>
-
-                    <li class="nav-item">
+                    <li v-if="menuPermissions.mail" class="nav-item">
                         <router-link to="/mail" class="nav-link" active-class="active" title="Почта"
                             @click="closeMobileSidebar">
                             <i class="bi bi-envelope-fill"></i>
@@ -122,15 +130,14 @@
 
                 <div class="nav-section-title">Учет и справочники</div>
                 <ul class="nav flex-column mb-1">
-                    <li class="nav-item">
+                    <li v-if="menuPermissions.warehouse" class="nav-item">
                         <router-link to="/warehouse" class="nav-link" active-class="active" title="Склад"
                             @click="closeMobileSidebar">
                             <i class="bi bi-box-seam-fill"></i>
                             <span class="nav-text">Склад</span>
                         </router-link>
                     </li>
-
-                    <li class="nav-item">
+                    <li v-if="menuPermissions.finance" class="nav-item">
                         <router-link to="/finance" class="nav-link" active-class="active" title="Финансы"
                             @click="closeMobileSidebar">
                             <i class="bi bi-cash-coin"></i>
@@ -148,18 +155,27 @@
                     </li>
                 </ul>
 
-                <template v-if="authStore.isAdmin">
-                    <div class="nav-section-title">Система</div>
-                    <ul class="nav flex-column mb-2">
-                        <li class="nav-item">
-                            <router-link to="/admin" class="nav-link" active-class="active" title="Админ панель"
-                                @click="closeMobileSidebar">
-                                <i class="bi bi-shield-lock-fill"></i>
-                                <span class="nav-text">Админ панель</span>
-                            </router-link>
-                        </li>
-                    </ul>
-                </template>
+
+                <div class="nav-section-title">Система</div>
+                <ul class="nav flex-column mb-2">
+
+                    <li v-if="menuPermissions.help" class="nav-item">
+                        <router-link to="/help" class="nav-link" active-class="active" title="Справка"
+                            @click="closeMobileSidebar">
+                            <i class="bi bi-question-circle-fill"></i>
+                            <span class="nav-text">Справка</span>
+                        </router-link>
+                    </li>
+
+                    <li class="nav-item" v-if="menuPermissions.admin">
+                        <router-link to="/admin" class="nav-link" active-class="active" title="Админ панель"
+                            @click="closeMobileSidebar">
+                            <i class="bi bi-shield-lock-fill"></i>
+                            <span class="nav-text">Админ панель</span>
+                        </router-link>
+                    </li>
+                </ul>
+
             </div>
 
             <!-- Профиль внизу сайдбара -->
@@ -239,7 +255,7 @@
                     <span class="nav-label">Направл.</span>
                 </router-link>
 
-                <router-link to="/mail" class="bottom-nav-item" active-class="active">
+                <router-link v-if="menuPermissions.mail" to="/mail" class="bottom-nav-item" active-class="active">
                     <div class="nav-icon-wrap">
                         <i class="bi bi-envelope-fill"></i>
                     </div>
@@ -282,6 +298,83 @@ const counts = ref({
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+
+const userGroupId = computed(() => {
+    const user = authStore.user || {};
+
+    return Number(
+        user.GroupId ??
+        user.group_id ??
+        user.user_group_id ??
+        user.group?.id ??
+        0
+    );
+});
+
+const normalizedUserRole = computed(() => {
+    const user = authStore.user || {};
+    const role = user.role;
+
+    return String(
+        role?.slug ??
+        role?.code ??
+        role?.name ??
+        role ??
+        authStore.userRole ??
+        ''
+    ).trim().toLowerCase();
+});
+
+const isServiceUser = computed(() => {
+    const user = authStore.user || {};
+    const role = normalizedUserRole.value;
+
+    return (
+        userGroupId.value === 8 ||
+        Boolean(user.is_service) ||
+        Boolean(user.is_sto) ||
+        ['service', 'sto', 'сервис', 'автосервис'].includes(role)
+    );
+});
+
+const isSparePartsUser = computed(() => {
+    const user = authStore.user || {};
+    const role = normalizedUserRole.value;
+
+    return (
+        userGroupId.value === 9 ||
+        Boolean(user.is_spm) ||
+        Boolean(user.is_parts_manager) ||
+        [
+            'spm',
+            'parts',
+            'spare_parts',
+            'запчастист',
+            'менеджер по запчастям',
+        ].includes(role)
+    );
+});
+
+/*
+ * Сервис видит только:
+ * Запросы, Направления, Чат, Справочники.
+ *
+ * Запчастист видит то же самое плюс Склад.
+ */
+const menuPermissions = computed(() => {
+    return authStore.user?.menu_permissions ?? {};
+});
+const isRestrictedMenuRole = computed(() => {
+    return isServiceUser.value || isSparePartsUser.value;
+});
+
+const canSeeBackOffice = computed(() => {
+    return !isRestrictedMenuRole.value;
+});
+
+const canSeeWarehouse = computed(() => {
+    return isSparePartsUser.value;
+});
 
 const isCollapsed = ref(localStorage.getItem('sidebar_collapsed') === 'true');
 const isMobileOpen = ref(false);
