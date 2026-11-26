@@ -38,11 +38,11 @@
                         <template v-if="showFinancialColumns">
                             <th class="col-fin text-end">Сумма СК</th>
                             <th class="col-fin text-end">Сумма З/Ч</th>
-                            <th class="col-fin text-end">Ремонт</th>
-                            <th class="col-fin text-end">Затраты</th>
+                            <th class="col-fin text-end">Работы</th>
+                            <th class="col-fin text-end">Доп. расх</th>
                             <th class="col-fin text-end">Оплата СК</th>
                             <th class="col-fin text-end">Оплата СТО</th>
-                            <th class="col-fin-wide text-end">Остаток</th>
+                            <th class="col-fin-wide text-end">Прибыль</th>
                         </template>
 
                         <th class="col-trash text-center" v-if="canViewSensitiveRegistryColumns"></th>
@@ -302,25 +302,47 @@
                         <!-- Финансовые колонки -->
                         <template v-if="showFinancialColumns">
                             <td class="col-fin text-end fw-medium">
-                                <div class="cell-truncate">{{ formatMoney(item.sum_sk) }} р.</div>
+                                {{ formatMoney(item.registry_finance?.sum_sk) }} р.
                             </td>
                             <td class="col-fin text-end fw-medium">
-                                <div class="cell-truncate">{{ formatMoney(item.sum_zap) }} р.</div>
+                                <div class="cell-truncate">
+                                    {{ formatMoney(item.registry_finance?.sum_zap) }} р.
+                                </div>
                             </td>
                             <td class="col-fin text-end fw-medium">
-                                <div class="cell-truncate">{{ formatMoney(item.remont_sum) }} р.</div>
+                                <div class="cell-truncate">
+                                    {{ formatMoney(item.registry_finance?.repair) }} р.
+                                </div>
                             </td>
                             <td class="col-fin text-end fw-medium">
-                                <div class="cell-truncate">{{ formatMoney(item.total_costs) }} р.</div>
+                                <div class="cell-truncate">
+                                    {{ formatMoney(item.registry_finance?.extra_costs) }} р.
+                                </div>
                             </td>
                             <td class="col-fin text-end fw-medium">
-                                <div class="cell-truncate">{{ formatMoney(item.ic_pay) }} р.</div>
+                                <div class="cell-truncate">
+                                    {{ formatRegistryDate(item.registry_finance?.paid_sk_date) }}
+                                </div>
                             </td>
                             <td class="col-fin text-end fw-medium">
-                                <div class="cell-truncate">{{ formatMoney(item.sto_pay) }} р.</div>
+                                <div class="cell-truncate">
+                                    {{ formatRegistryDate(item.registry_finance?.paid_sto_date) }}
+                                </div>
                             </td>
-                            <td class="col-fin-wide text-end text-success fw-bold">
-                                <div class="cell-truncate">{{ formatMoney(item.remains) }} ({{ item.remains_percent }}%)
+                            <td class="col-fin-wide text-end" :class="getRemainClass(item.registry_finance)">
+                                <div class="registry-remains-value"
+                                    :title="item.registry_finance?.remains === null
+                                        ? 'Финансовый расчёт недоступен'
+                                        : `${formatRegistryMoney(item.registry_finance.remains)} (${formatPercent(item.registry_finance.remains_percent)}%)`">
+                                    <span class="registry-remains-amount">
+                                        {{ formatRegistryMoney(item.registry_finance?.remains) }}
+                                    </span>
+
+                                    <span v-if="item.registry_finance?.remains_percent !== null
+                                        && item.registry_finance?.remains_percent !== undefined"
+                                        class="registry-remains-percent">
+                                        ({{ formatPercent(item.registry_finance.remains_percent) }}%)
+                                    </span>
                                 </div>
                             </td>
                         </template>
@@ -938,6 +960,56 @@ onMounted(async () => {
     await fetchFilterOptions();
     fetchItems(1);
 });
+
+
+const formatRegistryDate = (value) => {
+    if (!value) return '—';
+
+    const raw = String(value).substring(0, 10);
+    const parts = raw.split('-');
+
+    if (parts.length !== 3) return '—';
+
+    return `${parts[2]}.${parts[1]}.${parts[0]}`;
+};
+
+const formatPercent = (value) => {
+    if (value === null || value === undefined) {
+        return '—';
+    }
+
+    return Number(value).toLocaleString('ru-RU', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+};
+
+const getRemainClass = (finance) => {
+    if (!finance || finance.remains_percent === null) {
+        return 'text-muted';
+    }
+
+    return Number(finance.remains_percent) < 40
+        ? 'text-danger'
+        : 'text-success';
+};
+
+const formatRegistryMoney = (value) => {
+    if (value === null || value === undefined || value === '') {
+        return '—';
+    }
+
+    const number = Number(value);
+
+    if (!Number.isFinite(number)) {
+        return '—';
+    }
+
+    return number.toLocaleString('ru-RU', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }) + ' р.';
+};
 </script>
 
 <style scoped>
@@ -1139,6 +1211,13 @@ onMounted(async () => {
 .data-row {
     cursor: pointer;
     transition: filter 0.12s ease;
+}
+
+.data-row td.col-fin,
+.data-row td.col-fin-wide {
+    padding: 2px 3px !important;
+    line-height: 1.05 !important;
+    white-space: nowrap !important;
 }
 
 .data-row:hover {
@@ -1470,5 +1549,78 @@ onMounted(async () => {
     line-height: 1.25;
     white-space: nowrap;
     letter-spacing: 0.2px;
+}
+
+/* Компактная высота строк реестра */
+.table-mandarin tbody tr.data-row,
+.table-mandarin tbody tr.data-row td {
+    height: 30px !important;
+    min-height: 30px !important;
+    padding-top: 2px !important;
+    padding-bottom: 2px !important;
+    line-height: 1.05 !important;
+    vertical-align: middle !important;
+}
+
+/* Финансовые ячейки не должны растягивать строку переносом текста */
+.table-mandarin td.col-fin,
+.table-mandarin td.col-fin-wide {
+    height: 30px !important;
+    padding-left: 3px !important;
+    padding-right: 3px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    vertical-align: middle !important;
+}
+
+/* Остатку даём немного больше места */
+.table-mandarin th.col-fin-wide,
+.table-mandarin td.col-fin-wide {
+    width: 135px !important;
+    min-width: 135px !important;
+    max-width: 135px !important;
+}
+
+/* Остальные финансовые колонки компактнее */
+.table-mandarin th.col-fin,
+.table-mandarin td.col-fin {
+    width: 88px !important;
+    min-width: 88px !important;
+    max-width: 88px !important;
+}
+
+/* Содержимое ячейки остаётся в одну строку */
+.table-mandarin td.col-fin .cell-truncate,
+.table-mandarin td.col-fin-wide .cell-truncate {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    white-space: nowrap !important;
+    text-overflow: ellipsis;
+    line-height: 1.05 !important;
+    font-size: 0.68rem;
+}
+
+/* Сумма остатка */
+.table-mandarin td.col-fin-wide .registry-remains-value {
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 3px;
+    width: 100%;
+    white-space: nowrap !important;
+    font-size: 0.68rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.table-mandarin td.col-fin-wide .registry-remains-amount {
+    font-weight: 700;
+}
+
+.table-mandarin td.col-fin-wide .registry-remains-percent {
+    color: #64748b;
+    font-size: 0.60rem;
+    font-weight: 600;
 }
 </style>

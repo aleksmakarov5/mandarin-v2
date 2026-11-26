@@ -39,6 +39,7 @@ class ApplicationFinanceService
 
         if (!$estimate) {
             $warnings[] = 'Смета дела ещё не создана.';
+            $estimate = (object) [];
         }
 
         $legalEntity = $app->ourCompany?->legalEntity;

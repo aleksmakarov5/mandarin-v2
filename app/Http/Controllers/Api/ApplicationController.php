@@ -18,9 +18,16 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Gate;
+use App\Services\ApplicationRegistryFinanceService;
+use App\Services\ApplicationFinanceService;
 
 class ApplicationController extends Controller
 {
+
+    public function __construct(
+        protected ApplicationRegistryFinanceService $registryFinance
+    ) {
+    }
     /**
      * Статусы по вкладкам реестра
      */
@@ -47,14 +54,11 @@ class ApplicationController extends Controller
                 ], 401);
             }
 
-            // Только реальные вкладки реестра из $this->tabs.
             $validated = $request->validate([
                 'tab' => [
                     'sometimes',
                     'string',
-                    \Illuminate\Validation\Rule::in(
-                        array_keys($this->tabs)
-                    ),
+                    \Illuminate\Validation\Rule::in(array_keys($this->tabs)),
                 ],
                 'per_page' => [
                     'sometimes',
@@ -72,16 +76,12 @@ class ApplicationController extends Controller
             $tab = $validated['tab'] ?? 'requests';
             $perPage = (int) ($validated['per_page'] ?? 50);
 
-            // Разрешение открыть выбранную вкладку.
-            \Illuminate\Support\Facades\Gate::forUser($user)
-                ->authorize('viewRegistryTab', [$tab]);
+            $gate = \Illuminate\Support\Facades\Gate::forUser($user);
+            $gate->authorize('viewRegistryTab', [$tab]);
 
-            /*
-             * Фильтры идентификаторов:
-             * поддерживаем массив и строку "1,2,3".
-             *
-             * Неправильные значения возвращают 422,
-             * а не незаметно отключают фильтр.
+            /**
+             * Преобразование фильтра "1,2,3" или массива [1, 2, 3]
+             * в массив уникальных целых идентификаторов.
              */
             $parseIds = static function (string $field, bool $allowZero = false) use ($request): array {
                 if (!$request->filled($field)) {
@@ -100,7 +100,7 @@ class ApplicationController extends Controller
                     ? $raw
                     : explode(',', (string) $raw);
 
-                $ids = [];
+                $result = [];
 
                 foreach ($values as $value) {
                     if ($value === null || $value === '') {
@@ -135,10 +135,10 @@ class ApplicationController extends Controller
                         ]);
                     }
 
-                    $ids[] = $id;
+                    $result[] = (int) $id;
                 }
 
-                return array_values(array_unique($ids));
+                return array_values(array_unique($result));
             };
 
             $appInstance = new Application();
@@ -146,46 +146,34 @@ class ApplicationController extends Controller
             $appColumns = Schema::getColumnListing($appTable);
 
             /*
-             * Определяем реально существующие внешние ключи.
-             * Если существует несколько вариантов одновременно,
-             * используется первый в указанном порядке.
+             * Определяем реальные названия внешних ключей.
              */
-            $branchColumn = null;
-
-            foreach ([
+            $branchColumn = collect([
                 'our_company',
                 'our_company_id',
                 'id_our_company',
-            ] as $column) {
-                if (in_array($column, $appColumns, true)) {
-                    $branchColumn = $column;
-                    break;
-                }
-            }
+            ])->first(
+                    fn(string $column) => in_array($column, $appColumns, true)
+                );
 
-            $serviceColumn = null;
+            $serviceColumn = collect([
+                'id_service',
+                'service_id',
+            ])->first(
+                    fn(string $column) => in_array($column, $appColumns, true)
+                );
 
-            foreach (['id_service', 'service_id'] as $column) {
-                if (in_array($column, $appColumns, true)) {
-                    $serviceColumn = $column;
-                    break;
-                }
-            }
-
-            $financeColumn = null;
-
-            foreach ([
+            $financeColumn = collect([
                 'finance_status_id',
                 'id_finance_status',
                 'finance_statuses_id',
-            ] as $column) {
-                if (in_array($column, $appColumns, true)) {
-                    $financeColumn = $column;
-                    break;
-                }
-            }
+            ])->first(
+                    fn(string $column) => in_array($column, $appColumns, true)
+                );
 
-            // Связи: не запрашиваем необязательные колонки users.
+            /*
+             * Загружаем только существующие связи и убираем дубли.
+             */
             $withRelations = [];
 
             foreach ([
@@ -218,19 +206,23 @@ class ApplicationController extends Controller
                 $withRelations[] = 'lawyer';
             }
 
-            $query = Application::query()->with($withRelations);
+            if (method_exists($appInstance, 'ourCompany')) {
+                $withRelations[] = 'ourCompany.legalEntity';
+            }
+
+            $withRelations = array_values(array_unique($withRelations));
+
+            $query = Application::query()
+                ->with($withRelations)
+                ->whereIn(
+                    "{$appTable}.id_status",
+                    $this->tabs[$tab]
+                );
 
             /*
-             * 1. Статусы вкладки применяются ВСЕГДА.
-             *
-             * status_ids только сужает вкладку:
-             * через tab=requests нельзя запросить статусы архива.
+             * Вкладка определяет верхнюю границу статусов.
+             * status_ids может только сузить результат.
              */
-            $query->whereIn(
-                "{$appTable}.id_status",
-                $this->tabs[$tab]
-            );
-
             $statusIds = $parseIds('status_ids');
 
             if ($statusIds !== []) {
@@ -241,17 +233,9 @@ class ApplicationController extends Controller
             }
 
             /*
-             * 2. Область доступа.
-             *
-             * Не используем if (isSto()) ... else ...:
-             * права сотрудника и назначенного сервиса объединяются.
-             *
-             * Автоматический фильтр городов не добавляем:
-             * в присланной ApplicationPolicy его нет.
+             * Область доступа по филиалам и сервису.
              */
-            $isSystemAdmin = $user->isSystemAdmin();
-
-            if (!$isSystemAdmin) {
+            if (!$user->isSystemAdmin()) {
                 $isOperationalTab = in_array(
                     $tab,
                     ['requests', 'applications'],
@@ -273,7 +257,6 @@ class ApplicationController extends Controller
                     ->values()
                     ->all();
 
-                // Как в ApplicationPolicy::applicationAssignedToOwnService().
                 $ownServiceId = $isOperationalTab
                     ? (int) ($user->getServiceId() ?? 0)
                     : 0;
@@ -306,21 +289,22 @@ class ApplicationController extends Controller
                         }
                     }
 
-                    // Нет назначений — нет доступа.
                     if (!$hasBranchAccess && !$hasServiceAccess) {
                         $scope->whereRaw('1 = 0');
                     }
                 });
             }
 
-            // 3. Финансовые статусы.
+            /*
+             * Фильтр финансовых статусов.
+             */
             $financeIds = $parseIds('finance_status_ids');
 
             if ($financeIds !== []) {
                 if ($financeColumn === null) {
                     throw \Illuminate\Validation\ValidationException::withMessages([
                         'finance_status_ids' =>
-                            'В таблице дел не настроен внешний ключ финансового статуса.',
+                            'В таблице applications отсутствует поле финансового статуса.',
                     ]);
                 }
 
@@ -330,7 +314,9 @@ class ApplicationController extends Controller
                 );
             }
 
-            // 4. Сотрудники: условие OR обязательно внутри общей группы.
+            /*
+             * Фильтр ответственных сотрудников.
+             */
             $employeeIds = $parseIds('mrk_ids');
 
             if ($employeeIds !== []) {
@@ -341,28 +327,28 @@ class ApplicationController extends Controller
 
                 if ($employeeColumns === []) {
                     throw \Illuminate\Validation\ValidationException::withMessages([
-                        'mrk_ids' => 'В таблице дел отсутствуют поля ответственных сотрудников.',
+                        'mrk_ids' =>
+                            'В таблице applications отсутствуют поля ответственных.',
                     ]);
                 }
 
                 $query->where(function ($scope) use ($employeeColumns, $employeeIds, $appTable) {
                     foreach ($employeeColumns as $index => $column) {
-                        if ($index === 0) {
-                            $scope->whereIn(
-                                "{$appTable}.{$column}",
-                                $employeeIds
-                            );
-                        } else {
-                            $scope->orWhereIn(
-                                "{$appTable}.{$column}",
-                                $employeeIds
-                            );
-                        }
+                        $method = $index === 0
+                            ? 'whereIn'
+                            : 'orWhereIn';
+
+                        $scope->{$method}(
+                            "{$appTable}.{$column}",
+                            $employeeIds
+                        );
                     }
                 });
             }
 
-            // 5. Остальные фильтры только сужают область доступа.
+            /*
+             * Списочные фильтры.
+             */
             $listFilters = [
                 'city_ids' => 'id_city',
                 'insurance_ids' => 'id_insuranceCompany',
@@ -382,7 +368,8 @@ class ApplicationController extends Controller
                     || !in_array($column, $appColumns, true)
                 ) {
                     throw \Illuminate\Validation\ValidationException::withMessages([
-                        $field => 'Этот фильтр не поддерживается текущей структурой таблицы дел.',
+                        $field =>
+                            'Этот фильтр не поддерживается текущей структурой таблицы applications.',
                     ]);
                 }
 
@@ -391,7 +378,7 @@ class ApplicationController extends Controller
                     && array_diff($ids, [0, 1]) !== []
                 ) {
                     throw \Illuminate\Validation\ValidationException::withMessages([
-                        $field => 'Допустимые типы убытка: 0 и 1.',
+                        $field => 'Допустимые значения типа убытка: 0 и 1.',
                     ]);
                 }
 
@@ -401,7 +388,9 @@ class ApplicationController extends Controller
                 );
             }
 
-            // 6. Текстовые фильтры.
+            /*
+             * Текстовые фильтры.
+             */
             $textData = $request->validate([
                 'id' => ['sometimes', 'nullable', 'string', 'max:255'],
                 'ub_number' => ['sometimes', 'nullable', 'string', 'max:255'],
@@ -414,14 +403,16 @@ class ApplicationController extends Controller
                 'search' => ['sometimes', 'nullable', 'string', 'max:255'],
             ]);
 
-            foreach ([
+            $textColumns = array_values(array_intersect([
                 'id',
                 'ClientName',
                 'ClientPhone',
                 'CarModel',
                 'gnz',
                 'vin',
-            ] as $column) {
+            ], $appColumns));
+
+            foreach ($textColumns as $column) {
                 $value = trim((string) ($textData[$column] ?? ''));
 
                 if ($value !== '') {
@@ -436,19 +427,26 @@ class ApplicationController extends Controller
             $ubNumber = trim((string) ($textData['ub_number'] ?? ''));
 
             if ($ubNumber !== '') {
-                $query->where(function ($scope) use ($ubNumber, $appTable) {
-                    $scope
-                        ->where(
-                            "{$appTable}.numberInsuranceCompanyApplication",
-                            'LIKE',
-                            "%{$ubNumber}%"
-                        )
-                        ->orWhere(
-                            "{$appTable}.ub_number",
-                            'LIKE',
-                            "%{$ubNumber}%"
-                        );
-                });
+                $ubColumns = array_values(array_intersect([
+                    'numberInsuranceCompanyApplication',
+                    'ub_number',
+                ], $appColumns));
+
+                if ($ubColumns !== []) {
+                    $query->where(function ($scope) use ($ubColumns, $ubNumber, $appTable) {
+                        foreach ($ubColumns as $index => $column) {
+                            $method = $index === 0
+                                ? 'where'
+                                : 'orWhere';
+
+                            $scope->{$method}(
+                                "{$appTable}.{$column}",
+                                'LIKE',
+                                "%{$ubNumber}%"
+                            );
+                        }
+                    });
+                }
             }
 
             $stoName = trim((string) ($textData['sto_name'] ?? ''));
@@ -478,23 +476,21 @@ class ApplicationController extends Controller
                     'ClientPhone',
                 ], $appColumns));
 
-                $query->where(function ($scope) use ($searchColumns, $search, $appTable) {
-                    foreach ($searchColumns as $index => $column) {
-                        if ($index === 0) {
-                            $scope->where(
-                                "{$appTable}.{$column}",
-                                'LIKE',
-                                "%{$search}%"
-                            );
-                        } else {
-                            $scope->orWhere(
+                if ($searchColumns !== []) {
+                    $query->where(function ($scope) use ($searchColumns, $search, $appTable) {
+                        foreach ($searchColumns as $index => $column) {
+                            $method = $index === 0
+                                ? 'where'
+                                : 'orWhere';
+
+                            $scope->{$method}(
                                 "{$appTable}.{$column}",
                                 'LIKE',
                                 "%{$search}%"
                             );
                         }
-                    }
-                });
+                    });
+                }
             }
 
             $paginator = $query
@@ -502,8 +498,69 @@ class ApplicationController extends Controller
                 ->paginate($perPage);
 
             /*
-             * Справочник СТО: только сервисы дел текущей страницы.
-             * Не подставляем сервис пользователя в чужое/непривязанное дело.
+             * Финансы рассчитываются один раз на каждое дело.
+             * Удалены вызовы ApplicationRegistryFinanceService,
+             * которые ранее перезаписывали результаты.
+             */
+            $financeService = app(
+                \App\Services\ApplicationFinanceService::class
+            );
+
+            $registryFinanceById = [];
+            $financePermissionsById = [];
+            $financeErrorsById = [];
+
+            foreach ($paginator->getCollection() as $application) {
+                $applicationId = (int) $application->id;
+
+                $canViewFinance = $gate->allows(
+                    'viewFinance',
+                    $application
+                );
+
+                $financePermissionsById[$applicationId] = $canViewFinance;
+                $registryFinanceById[$applicationId] = null;
+                $financeErrorsById[$applicationId] = null;
+
+                if (!$canViewFinance) {
+                    continue;
+                }
+
+                try {
+                    $rawResult = $financeService->calculate(
+                        $application,
+                        $user
+                    );
+
+                    $summary = $rawResult['data'] ?? null;
+
+                    if (!is_array($summary)) {
+                        throw new \UnexpectedValueException(
+                            'ApplicationFinanceService не вернул массив data.'
+                        );
+                    }
+
+                    $registryFinanceById[$applicationId] =
+                        $this->makeRegistryFinance($summary);
+                } catch (\Throwable $e) {
+                    $financeErrorsById[$applicationId] =
+                        'Не удалось рассчитать финансовые показатели.';
+
+                    Log::error(
+                        'Ошибка финансового расчёта реестра.',
+                        [
+                            'application_id' => $applicationId,
+                            'exception' => get_class($e),
+                            'message' => $e->getMessage(),
+                            'file' => $e->getFile(),
+                            'line' => $e->getLine(),
+                        ]
+                    );
+                }
+            }
+
+            /*
+             * Карта сервисов только для текущей страницы.
              */
             $servicesMap = collect();
 
@@ -513,8 +570,12 @@ class ApplicationController extends Controller
             ) {
                 $serviceIds = $paginator->getCollection()
                     ->map(
-                        static fn($app) =>
-                            (int) ($app->getAttribute($serviceColumn) ?? 0)
+                        static fn($application) =>
+                            (int) (
+                                $application
+                                    ->getAttribute($serviceColumn)
+                                ?? 0
+                            )
                     )
                     ->filter(static fn($id) => $id > 0)
                     ->unique()
@@ -538,6 +599,9 @@ class ApplicationController extends Controller
                 }
             }
 
+            /*
+             * Карта финансовых статусов.
+             */
             $finStatusesMap = collect();
 
             if (Schema::hasTable('finance_statuses')) {
@@ -558,52 +622,81 @@ class ApplicationController extends Controller
                     'text_color',
                 ], $availableColumns));
 
-                $finStatusesMap = DB::table('finance_statuses')
-                    ->select($selectColumns)
-                    ->get()
-                    ->keyBy('id');
+                if (
+                    in_array('id', $selectColumns, true)
+                    && in_array('name', $selectColumns, true)
+                ) {
+                    $finStatusesMap = DB::table('finance_statuses')
+                        ->select($selectColumns)
+                        ->get()
+                        ->keyBy('id');
+                }
             }
 
+            /*
+             * Сервис таймеров создаём один раз.
+             */
             $timerService = null;
 
-            if (class_exists(\App\Services\ApplicationTimerService::class)) {
+            if (
+                class_exists(
+                    \App\Services\ApplicationTimerService::class
+                )
+            ) {
                 try {
                     $timerService = app(
                         \App\Services\ApplicationTimerService::class
                     );
                 } catch (\Throwable $e) {
-                    Log::warning('Не удалось создать сервис таймеров.', [
-                        'error' => $e->getMessage(),
-                    ]);
+                    Log::warning(
+                        'Не удалось создать сервис таймеров.',
+                        ['error' => $e->getMessage()]
+                    );
                 }
             }
 
+            /*
+             * Проверяем скрытие контактов один раз,
+             * а не для каждой строки.
+             */
+            $hideContacts =
+                (
+                    method_exists($user, 'isSto')
+                    && $user->isSto()
+                )
+                || (
+                    method_exists($user, 'isSpm')
+                    && $user->isSpm()
+                );
+
             $paginator->getCollection()->transform(
-                function ($app) use ($user, $serviceColumn, $financeColumn, $servicesMap, $finStatusesMap, $timerService) {
-                    // СТО определяется по самому делу.
+                function ($app) use ($user, $gate, $serviceColumn, $financeColumn, $servicesMap, $finStatusesMap, $timerService, $registryFinanceById, $financePermissionsById, $financeErrorsById, $hideContacts) {
+                    $applicationId = (int) $app->id;
+
+                    /*
+                     * Сервис / СТО.
+                     */
                     $serviceId = $serviceColumn !== null
-                        ? (int) ($app->getAttribute($serviceColumn) ?? 0)
+                        ? (int) (
+                            $app->getAttribute($serviceColumn) ?? 0
+                        )
                         : 0;
 
                     $serviceRow = $serviceId > 0
                         ? $servicesMap->get($serviceId)
                         : null;
 
-                    $serviceRelation = $app->relationLoaded('service')
+                    $serviceRelation =
+                        $app->relationLoaded('service')
                         ? $app->getRelation('service')
                         : null;
 
                     $serviceName = trim((string) (
                         $serviceRow->name
                         ?? $serviceRelation?->name
+                        ?? $app->getAttribute('service_name')
                         ?? ''
                     ));
-
-                    if ($serviceName === '') {
-                        $serviceName = trim((string) (
-                            $app->getAttribute('service_name') ?? ''
-                        ));
-                    }
 
                     $serviceName = $serviceName !== ''
                         ? $serviceName
@@ -617,9 +710,13 @@ class ApplicationController extends Controller
                         ?? $serviceRelation?->text_color
                         ?? '#0369a1';
 
-                    // Финансовый статус.
+                    /*
+                     * Финансовый статус.
+                     */
                     $financeId = $financeColumn !== null
-                        ? (int) ($app->getAttribute($financeColumn) ?? 0)
+                        ? (int) (
+                            $app->getAttribute($financeColumn) ?? 0
+                        )
                         : 0;
 
                     $financeObject = $financeId > 0
@@ -627,36 +724,45 @@ class ApplicationController extends Controller
                         : null;
 
                     if (!$financeObject) {
-                        foreach (['financeStatus', 'finStatus'] as $relation) {
+                        foreach (
+                            ['financeStatus', 'finStatus']
+                            as $relation
+                        ) {
                             if (
                                 $app->relationLoaded($relation)
                                 && $app->getRelation($relation)
                             ) {
-                                $financeObject = $app->getRelation($relation);
+                                $financeObject =
+                                    $app->getRelation($relation);
                                 break;
                             }
                         }
                     }
 
                     $app->fin_time = (int) (
-                        $financeObject->fin_time
-                        ?? $financeObject->time
+                        $financeObject?->fin_time
+                        ?? $financeObject?->time
                         ?? 0
                     );
 
                     $app->fin_day = (int) (
-                        $financeObject->fin_day
-                        ?? $financeObject->is_day
-                        ?? $financeObject->day
+                        $financeObject?->fin_day
+                        ?? $financeObject?->is_day
+                        ?? $financeObject?->day
                         ?? 0
                     );
 
+                    /*
+                     * Основной статус и таймеры.
+                     */
                     $status = $app->relationLoaded('status')
                         ? $app->getRelation('status')
                         : null;
 
                     $app->time = (int) (
-                        $status?->time ?? $app->time ?? 0
+                        $status?->time
+                        ?? $app->time
+                        ?? 0
                     );
 
                     $app->day = (int) (
@@ -666,17 +772,19 @@ class ApplicationController extends Controller
                         ?? 0
                     );
 
-                    // Таймеры.
                     $timers = [];
 
                     if ($timerService) {
                         try {
                             $timers = $timerService->calculate($app);
                         } catch (\Throwable $e) {
-                            Log::warning('Ошибка расчёта таймеров дела.', [
-                                'application_id' => $app->id,
-                                'error' => $e->getMessage(),
-                            ]);
+                            Log::warning(
+                                'Ошибка расчёта таймеров дела.',
+                                [
+                                    'application_id' => $applicationId,
+                                    'error' => $e->getMessage(),
+                                ]
+                            );
                         }
                     }
 
@@ -686,23 +794,13 @@ class ApplicationController extends Controller
                     ];
 
                     if (empty($timers['app_timer'])) {
-                        $customTimer = $this->calculateCustomTimer($app);
+                        $customTimer =
+                            $this->calculateCustomTimer($app);
                     }
 
-                    $soglas = $this->calculateSoglasOplTimer($app);
+                    $soglas =
+                        $this->calculateSoglasOplTimer($app);
 
-                    $sumSk = (float) ($app->sum_sk ?? 0);
-                    $sumZap = (float) ($app->sum_zap ?? 0);
-                    $remontSum = (float) ($app->remont_sum ?? 0);
-                    $totalCosts = $sumZap + $remontSum;
-                    $remains = max(0, $sumSk - $totalCosts);
-
-                    /*
-                     * Формируем массив ответа.
-                     *
-                     * Не записываем stdClass через setRelation():
-                     * Eloquent ожидает сериализуемую модель/коллекцию.
-                     */
                     $data = $app->toArray();
 
                     $data['service_name'] = $serviceName;
@@ -710,14 +808,16 @@ class ApplicationController extends Controller
                     $data['service_text'] = $serviceText;
 
                     $data['service'] = [
-                        'id' => $serviceId > 0 ? $serviceId : null,
+                        'id' => $serviceId > 0
+                            ? $serviceId
+                            : null,
                         'name' => $serviceName,
                         'bg_color' => $serviceBg,
                         'text_color' => $serviceText,
                     ];
 
                     $financeName = (string) (
-                        $financeObject->name
+                        $financeObject?->name
                         ?? $soglas['title']
                         ?? ''
                     );
@@ -728,21 +828,29 @@ class ApplicationController extends Controller
                     $data['fin_time'] = (int) $app->fin_time;
                     $data['fin_day'] = (int) $app->fin_day;
 
-                    // Стандартное snake_case-имя связи Eloquent.
-                    $data['finance_status'] = $financeObject
-                        ? array_merge((array) (
+                    if ($financeObject) {
+                        $financeData =
                             $financeObject instanceof
                             \Illuminate\Database\Eloquent\Model
                             ? $financeObject->toArray()
-                            : $financeObject
-                        ), [
-                            'id' => $financeId,
-                            'name' => $financeName,
-                        ])
-                        : null;
+                            : (array) $financeObject;
 
-                    $data['app_timer'] = $timers['app_timer'] ?? null;
-                    $data['finance_timer'] = $timers['finance_timer'] ?? null;
+                        $data['finance_status'] = array_merge(
+                            $financeData,
+                            [
+                                'id' => $financeId,
+                                'name' => $financeName,
+                            ]
+                        );
+                    } else {
+                        $data['finance_status'] = null;
+                    }
+
+                    $data['app_timer'] =
+                        $timers['app_timer'] ?? null;
+
+                    $data['finance_timer'] =
+                        $timers['finance_timer'] ?? null;
 
                     $data['max_hour'] =
                         $timers['app_timer']['max_hour'] ?? 0;
@@ -774,56 +882,164 @@ class ApplicationController extends Controller
                     $data['soglas_overdue'] =
                         $soglas['is_overdue'] ?? false;
 
-                    $data['sum_sk'] = $sumSk;
-                    $data['sum_zap'] = $sumZap;
-                    $data['remont_sum'] = $remontSum;
-                    $data['total_costs'] = $totalCosts;
-                    $data['ic_pay'] = (float) ($app->ic_pay ?? 0);
-                    $data['sto_pay'] = (float) ($app->sto_pay ?? 0);
-                    $data['remains'] = $remains;
+                    /*
+                     * Финансовые поля.
+                     */
+                    $canViewFinance =
+                        $financePermissionsById[$applicationId]
+                        ?? false;
 
-                    $data['remains_percent'] = $sumSk > 0
-                        ? (int) round(($remains / $sumSk) * 100)
-                        : 0;
+                    $registryFinance =
+                        $registryFinanceById[$applicationId]
+                        ?? null;
 
-                    // Права действий — только через существующую policy.
+                    $data['permissions'] =
+                        $data['permissions'] ?? [];
+
+                    $data['permissions']['view_finance'] =
+                        $canViewFinance;
+
                     $data['permissions']['status'] = [
                         'change_status' =>
-                            \Illuminate\Support\Facades\Gate::forUser($user)
-                                ->allows('changeStatus', $app),
+                            $gate->allows(
+                                'changeStatus',
+                                $app
+                            ),
 
                         'change_finance_status' =>
-                            \Illuminate\Support\Facades\Gate::forUser($user)
-                                ->allows('changeFinanceStatus', $app),
+                            $gate->allows(
+                                'changeFinanceStatus',
+                                $app
+                            ),
                     ];
+
+                    if ($canViewFinance) {
+                        $data['registry_finance'] =
+                            $registryFinance;
+
+                        $data['registry_finance_error'] =
+                            $financeErrorsById[$applicationId]
+                            ?? null;
+
+                        /*
+                         * Совместимость со старыми полями реестра.
+                         */
+                        $data['sum_sk'] =
+                            $registryFinance['sum_sk'] ?? null;
+
+                        $data['sum_zap'] =
+                            $registryFinance['sum_zap'] ?? null;
+
+                        $data['remont_sum'] =
+                            $registryFinance['repair'] ?? null;
+
+                        $data['extra_costs'] =
+                            $registryFinance['extra_costs'] ?? null;
+
+                        $data['paid_sk_date'] =
+                            $registryFinance['paid_sk_date'] ?? null;
+
+                        $data['paid_sto_date'] =
+                            $registryFinance['paid_sto_date'] ?? null;
+
+                        $data['remains'] =
+                            $registryFinance['remains'] ?? null;
+
+                        $data['remains_percent'] =
+                            $registryFinance['remains_percent']
+                            ?? null;
+
+                        $data['income_received'] =
+                            $registryFinance['income_received']
+                            ?? null;
+
+                        $data['finance_basis'] =
+                            $registryFinance['basis'] ?? null;
+                    } else {
+                        unset(
+                            $data['registry_finance'],
+                            $data['registry_finance_error'],
+                            $data['sum_sk'],
+                            $data['sum_zap'],
+                            $data['remont_sum'],
+                            $data['extra_costs'],
+                            $data['total_costs'],
+                            $data['ic_pay'],
+                            $data['sto_pay'],
+                            $data['remains'],
+                            $data['remains_percent'],
+                            $data['paid_sk_date'],
+                            $data['paid_sto_date'],
+                            $data['income_received'],
+                            $data['finance_basis'],
+                            $data['finance_status'],
+                            $data['financeStatus'],
+                            $data['finStatus'],
+                            $data['fin_status'],
+                            $data['finance_status_name'],
+                            $data['finance_status_id'],
+                            $data['id_finance_status'],
+                            $data['finance_statuses_id'],
+                            $data['fin_time'],
+                            $data['fin_day'],
+                            $data['finance_timer'],
+                            $data['soglas_title'],
+                            $data['soglas_time_text'],
+                            $data['soglas_overdue'],
+                            $data['max_hour_f'],
+                            $data['count_hour_f']
+                        );
+                    }
+
+                    if ($hideContacts) {
+                        unset(
+                            $data['ClientPhone'],
+                            $data['ClientName']
+                        );
+                    }
 
                     return $data;
                 }
             );
 
             return response()->json($paginator);
-        } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+        } catch (
+            \Illuminate\Auth\Access\AuthorizationException $e
+        ) {
             return response()->json([
-                'message' => 'Раздел реестра недоступен для текущей роли.',
+                'message' =>
+                    'Раздел реестра недоступен для текущей роли.',
             ], 403);
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (
+            \Illuminate\Validation\ValidationException $e
+        ) {
             return response()->json([
-                'message' => 'Некорректные параметры фильтрации.',
+                'message' =>
+                    'Некорректные параметры фильтрации.',
                 'errors' => $e->errors(),
             ], 422);
         } catch (\Throwable $e) {
-            Log::error('Ошибка в ApplicationController::index.', [
-                'error' => $e->getMessage(),
-                'file' => $e->getFile() . ':' . $e->getLine(),
-                'trace' => $e->getTraceAsString(),
-            ]);
+            Log::error(
+                'Ошибка в ApplicationController::index.',
+                [
+                    'error' => $e->getMessage(),
+                    'file' => $e->getFile()
+                        . ':'
+                        . $e->getLine(),
+                    'trace' => $e->getTraceAsString(),
+                ]
+            );
 
             return response()->json([
                 'message' => 'Ошибка загрузки списка дел.',
-                'debug' => config('app.debug') ? [
-                    'file' => $e->getFile() . ':' . $e->getLine(),
-                    'msg' => $e->getMessage(),
-                ] : null,
+                'debug' => config('app.debug')
+                    ? [
+                        'file' => $e->getFile()
+                            . ':'
+                            . $e->getLine(),
+                        'msg' => $e->getMessage(),
+                    ]
+                    : null,
             ], 500);
         }
     }
@@ -1676,5 +1892,247 @@ class ApplicationController extends Controller
                 $scope->whereRaw('1 = 0');
             }
         });
+    }
+
+    /**
+     * Преобразование финансовой сводки карточки
+     * в компактный формат строки реестра.
+     *
+     * Вход: копейки.
+     * Выход: рубли.
+     */
+    private function makeRegistryFinance(array $summary): array
+    {
+        if (($summary['money_unit'] ?? null) !== 'kopeck') {
+            throw new \UnexpectedValueException(
+                'Финансовая сводка должна содержать money_unit=kopeck.'
+            );
+        }
+
+        /*
+         * Не подменяем отсутствующие ключи нулями.
+         * При несовпадении контракта в логе будет точный путь.
+         *
+         * NULL сохраняется: например, если не настроены налоги.
+         */
+        $readMoney = static function (string $path) use ($summary): ?int {
+            $value = $summary;
+
+            foreach (explode('.', $path) as $key) {
+                if (
+                    !is_array($value)
+                    || !array_key_exists($key, $value)
+                ) {
+                    throw new \UnexpectedValueException(
+                        "В финансовой сводке отсутствует поле {$path}."
+                    );
+                }
+
+                $value = $value[$key];
+            }
+
+            if ($value === null) {
+                return null;
+            }
+
+            if (
+                !is_int($value)
+                && !(
+                    is_string($value)
+                    && preg_match('/^-?\d+$/D', $value) === 1
+                )
+            ) {
+                throw new \UnexpectedValueException(
+                    "Поле {$path} должно содержать целые копейки; получен "
+                    . get_debug_type($value)
+                    . '.'
+                );
+            }
+
+            return (int) $value;
+        };
+
+        /*
+         * Дата из сервиса ожидается в формате YYYY-MM-DD
+         * либо с временной частью после даты.
+         */
+        $readDate = static function (mixed $value): ?string {
+            if ($value === null || $value === '') {
+                return null;
+            }
+
+            if ($value instanceof \DateTimeInterface) {
+                return $value->format('Y-m-d');
+            }
+
+            if (!is_string($value)) {
+                throw new \UnexpectedValueException(
+                    'Финансовая дата должна быть строкой или DateTimeInterface.'
+                );
+            }
+
+            $date = substr($value, 0, 10);
+
+            if (
+                preg_match(
+                    '/^(\d{4})-(\d{2})-(\d{2})$/D',
+                    $date,
+                    $matches
+                ) !== 1
+                || !checkdate(
+                    (int) $matches[2],
+                    (int) $matches[3],
+                    (int) $matches[1]
+                )
+            ) {
+                throw new \UnexpectedValueException(
+                    'Некорректный формат финансовой даты.'
+                );
+            }
+
+            return $date;
+        };
+
+        $cash = $summary['cash'] ?? [];
+
+        $isSplit = (bool) (
+            $cash['is_split']
+            ?? $summary['approved']['is_split']
+            ?? false
+        );
+
+        /*
+         * Суммы поступлений проверяем в копейках.
+         * Деление на 100 выполняется только при выдаче результата.
+         */
+        $singleIncome = $readMoney('cash.income');
+
+        $repairIncome = $isSplit
+            ? $readMoney('cash.repair_income')
+            : null;
+
+        $defectIncome = $isSplit
+            ? $readMoney('cash.defect_income')
+            : null;
+
+        $incomeReceived = $isSplit
+            ? (
+                $repairIncome !== null
+                && $repairIncome > 0
+                && $defectIncome !== null
+                && $defectIncome > 0
+            )
+            : (
+                $singleIncome !== null
+                && $singleIncome > 0
+            );
+
+        $sumSk = $incomeReceived
+            ? (
+                $isSplit
+                ? $repairIncome + $defectIncome
+                : $singleIncome
+            )
+            : $readMoney('approved.gross');
+
+        $parts = $readMoney(
+            $incomeReceived
+            ? 'actual_expenses.parts'
+            : 'planned_expenses.parts'
+        );
+
+        $works = $readMoney(
+            $incomeReceived
+            ? 'actual_expenses.works'
+            : 'planned_expenses.works'
+        );
+
+        $extraExpenses = $readMoney(
+            'actual_expenses.extra_expenses'
+        );
+
+        /*
+         * Используем готовый результат карточки.
+         * Формулу налогов и расходов здесь не дублируем.
+         */
+        $remains = $readMoney(
+            $incomeReceived
+            ? 'cash.profit'
+            : 'approved_difference'
+        );
+
+        $vat = $readMoney(
+            $incomeReceived
+            ? 'cash.vat'
+            : 'approved.vat'
+        );
+
+        $incomeTax = $readMoney(
+            $incomeReceived
+            ? 'cash.income_tax'
+            : 'approved.income_tax'
+        );
+
+        $paidSkDate = null;
+
+        if ($isSplit) {
+            $repairDate = $readDate(
+                $cash['repair_income_date'] ?? null
+            );
+
+            $defectDate = $readDate(
+                $cash['defect_income_date'] ?? null
+            );
+
+            if ($repairDate !== null && $defectDate !== null) {
+                $paidSkDate = max($repairDate, $defectDate);
+            }
+        } else {
+            $paidSkDate = $readDate(
+                $cash['income_date'] ?? null
+            );
+        }
+
+        $paidStoDate = $readDate(
+            $cash['sto_payment_date'] ?? null
+        );
+
+        return [
+            'money_unit' => 'ruble',
+
+            'sum_sk' => $this->kopecksToRubles($sumSk),
+            'sum_zap' => $this->kopecksToRubles($parts),
+            'repair' => $this->kopecksToRubles($works),
+            'extra_costs' => $this->kopecksToRubles($extraExpenses),
+
+            'paid_sk_date' => $paidSkDate,
+            'paid_sto_date' => $paidStoDate,
+
+            'remains' => $this->kopecksToRubles($remains),
+
+            'remains_percent' => (
+                $sumSk !== null
+                && $sumSk > 0
+                && $remains !== null
+            )
+                ? round(($remains / $sumSk) * 100, 2)
+                : null,
+
+            'income_received' => $incomeReceived,
+            'basis' => $incomeReceived ? 'fact' : 'plan',
+
+            'vat' => $this->kopecksToRubles($vat),
+            'income_tax' => $this->kopecksToRubles($incomeTax),
+        ];
+    }
+
+    /**
+     * NULL остаётся NULL, а не превращается в ноль.
+     */
+    private function kopecksToRubles(?int $value): ?float
+    {
+        return $value === null
+            ? null
+            : round($value / 100, 2);
     }
 }
