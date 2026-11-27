@@ -55,22 +55,26 @@
 
         <!-- Действия справа сверху -->
         <div class="tile-actions">
-            <button v-if="manage" type="button" class="tile-action" :disabled="Boolean(item.type)" :title="item.type
-                ? 'Редактирование пока не подключено'
-                : 'Назначить тип документа'" aria-label="Редактировать тип документа"
-                @click="emit('assign-type', item)">
+            <button v-if="manage && !item.type" type="button" class="tile-action" title="Назначить тип"
+                aria-label="Назначить тип документа" @click.stop="emit('assign-type', item)">
+                <i class="bi bi-tag" aria-hidden="true"></i>
+            </button>
+            <button v-if="manage" type="button" class="tile-action" title="Переименовать"
+                aria-label="Переименовать документ" @click.stop="emit('rename', item)">
                 <i class="bi bi-pencil" aria-hidden="true"></i>
             </button>
 
-            <button v-if="manage" type="button" class="tile-action tile-action-danger" disabled
-                title="Удаление пока не подключено" aria-label="Удалить документ">
+            <button v-if="manage" type="button" class="tile-action tile-action-danger" title="Удалить документ"
+                aria-label="Удалить документ" @click.stop="emit('delete', item)">
                 <i class="bi bi-trash3" aria-hidden="true"></i>
             </button>
 
-            <button type="button" class="tile-action" :disabled="!Number(item.files_count)"
-                title="Выбрать файл для скачивания" aria-label="Открыть файлы для скачивания"
-                @click="emit('open', item)">
-                <i class="bi bi-download" aria-hidden="true"></i>
+            <button type="button" class="tile-action" :disabled="downloading || !Number(item.files_count)"
+                :title="downloading ? 'Подготовка скачивания…' : 'Скачать'" aria-label="Скачать документ или фотоархив"
+                @click.stop="emit('download', item)">
+                <span v-if="downloading" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+
+                <i v-else class="bi bi-download" aria-hidden="true"></i>
             </button>
         </div>
     </article>
@@ -89,11 +93,18 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    downloading: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const emit = defineEmits([
     'assign-type',
     'open',
+    'rename',
+    'delete',
+    'download',
 ]);
 
 const isPhoto = computed(() => {

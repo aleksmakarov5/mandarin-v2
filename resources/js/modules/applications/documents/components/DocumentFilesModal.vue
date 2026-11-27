@@ -1,84 +1,95 @@
 <template>
     <Teleport to="body">
-        <div v-show="!minimized" class="preview-overlay" @click.self="emit('minimize')"
-            @keydown.esc.stop.prevent="emit('close')">
-            <section ref="dialog" class="preview-modal" role="dialog" aria-modal="true" aria-label="Просмотр документа"
-                tabindex="-1" @keydown.tab="trapFocus">
-                <header class="preview-header">
-                    <div class="preview-heading">
-                        <strong>
-                            {{ document.title || 'Просмотр документа' }}
-                        </strong>
+        <Transition name="document-window">
 
-                        <small v-if="currentFile">
-                            {{ currentFile.name }}
-                        </small>
-                    </div>
+            <div v-show="!minimized" class="preview-overlay" @click.self="emit('minimize')"
+                @keydown.esc.stop.prevent="emit('close')">
+                <section ref="dialog" class="preview-modal" role="dialog" aria-modal="true"
+                    aria-label="Просмотр документа" tabindex="-1" @keydown.tab="trapFocus">
+                    <header class="preview-header">
+                        <div class="preview-heading">
+                            <strong>
+                                {{ document.title || 'Просмотр документа' }}
+                            </strong>
 
-                    <div class="preview-actions">
-                        <button type="button" v-if="!isPhotoGallery" :disabled="loading || downloading || !currentFile"
-                            aria-label="Скачать файл" title="Скачать" @click="download">
-                            <i class="bi bi-download" aria-hidden="true"></i>
+                            <small v-if="currentFile">
+                                {{ currentFile.name }}
+                            </small>
+                        </div>
+
+                        <div class="preview-actions">
+                            <button type="button" v-if="!isPhotoGallery"
+                                :disabled="loading || downloading || !currentFile" aria-label="Скачать файл"
+                                title="Скачать" @click="download">
+                                <i class="bi bi-download" aria-hidden="true"></i>
+                            </button>
+                            <button type="button" title="Свернуть просмотр" aria-label="Свернуть просмотр документа"
+                                @click="emit('minimize')">
+                                <i class="bi bi-dash-lg" aria-hidden="true"></i>
+                            </button>
+                            <button type="button" class="close-button" aria-label="Закрыть" @click="emit('close')">
+                                ×
+                            </button>
+                        </div>
+                    </header>
+
+                    <!-- Для нескольких файлов — переключатель, не список плиток -->
+                    <nav v-if="!isPhotoGallery && meta.total > 1" class="preview-navigation"
+                        aria-label="Переключение файлов документа">
+                        <button type="button" :disabled="loading || position <= 1" @click="move(-1)">
+                            ←
                         </button>
-                        <button type="button" title="Свернуть просмотр" aria-label="Свернуть просмотр документа"
-                            @click="emit('minimize')">
-                            <i class="bi bi-dash-lg" aria-hidden="true"></i>
+
+                        <span>Файл {{ position }} из {{ meta.total }}</span>
+
+                        <button type="button" :disabled="loading || position >= meta.total" @click="move(1)">
+                            →
                         </button>
-                        <button type="button" class="close-button" aria-label="Закрыть" @click="emit('close')">
-                            ×
-                        </button>
-                    </div>
-                </header>
+                    </nav>
 
-                <!-- Для нескольких файлов — переключатель, не список плиток -->
-                <nav v-if="!isPhotoGallery && meta.total > 1" class="preview-navigation"
-                    aria-label="Переключение файлов документа">
-                    <button type="button" :disabled="loading || position <= 1" @click="move(-1)">
-                        ←
-                    </button>
-
-                    <span>Файл {{ position }} из {{ meta.total }}</span>
-
-                    <button type="button" :disabled="loading || position >= meta.total" @click="move(1)">
-                        →
-                    </button>
-                </nav>
-
-                <div v-if="downloadError" class="download-error" role="alert">
-                    {{ downloadError }}
-                </div>
-
-                <main class="preview-body" :aria-busy="loading">
-
-                    <PhotoGallery v-if="isPhotoGallery" :application-id="applicationId" :document="document"
-                        :active="!minimized" />
-
-                    <div v-else-if="loading" class="preview-message" role="status">
-                        Подготовка документа…
+                    <div v-if="downloadError" class="download-error" role="alert">
+                        {{ downloadError }}
                     </div>
 
-                    <div v-else-if="error" class="preview-message preview-error" role="alert">
-                        <p>{{ error }}</p>
+                    <main class="preview-body" :aria-busy="loading">
 
-                        <button type="button" @click="loadPage(meta.current_page)">
-                            Повторить
-                        </button>
-                    </div>
+                        <PhotoGallery v-if="isPhotoGallery" :application-id="applicationId" :document="document"
+                            :active="!minimized" />
 
-                    <iframe v-else-if="preview?.kind === 'pdf'" :key="preview.url" class="pdf-viewer" :src="preview.url"
-                        :title="currentFile?.name || 'PDF-документ'" referrerpolicy="no-referrer"></iframe>
+                        <div v-else-if="loading" class="preview-message" role="status">
+                            Подготовка документа…
+                        </div>
 
-                    <div v-else-if="preview?.kind === 'image'" class="image-viewer">
-                        <img :key="preview.url" :src="preview.url" :alt="currentFile?.name || 'Изображение документа'"
-                            referrerpolicy="no-referrer" @error="imageError" />
-                    </div>
+                        <div v-else-if="error" class="preview-message preview-error" role="alert">
+                            <p>{{ error }}</p>
 
-                    <div v-else class="preview-message">
-                        Доступных файлов пока нет.
-                    </div>
-                </main>
-            </section>
-        </div>
+                            <button type="button" @click="loadPage(meta.current_page)">
+                                Повторить
+                            </button>
+                        </div>
+
+                        <ArchiveViewer v-else-if="preview?.kind === 'archive' && currentFile"
+                            :key="`${applicationId}-${document.id}-${currentFile.id}`" :application-id="applicationId"
+                            :document-id="document.id" :file="currentFile" :active="!minimized" />
+                        <iframe v-else-if="preview?.kind === 'pdf'" :key="preview.url" class="pdf-viewer"
+                            :src="preview.url" :title="currentFile?.name || 'PDF-документ'"
+                            referrerpolicy="no-referrer"></iframe>
+
+                        <div v-else-if="preview?.kind === 'image'" class="image-viewer">
+                            <img :key="preview.url" :src="preview.url"
+                                :alt="currentFile?.name || 'Изображение документа'" referrerpolicy="no-referrer"
+                                @error="imageError" />
+                        </div>
+                        <div v-else-if="preview?.kind === 'text'" class="text-viewer">
+                            <pre>{{ preview.text }}</pre>
+                        </div>
+                        <div v-else class="preview-message">
+                            Доступных файлов пока нет.
+                        </div>
+                    </main>
+                </section>
+            </div>
+        </Transition>
     </Teleport>
 </template>
 
@@ -94,7 +105,7 @@ import {
 
 import axios from 'axios';
 import PhotoGallery from '../gallery/PhotoGallery.vue';
-
+import ArchiveViewer from './ArchiveViewer.vue';
 
 const props = defineProps({
     applicationId: {
@@ -111,6 +122,26 @@ const props = defineProps({
     },
 });
 
+function isArchiveFile(file) {
+    const extension = String(
+        file.extension
+        || String(file.name || file.original_name || '')
+            .split('.')
+            .pop()
+        || ''
+    ).toLowerCase();
+
+    return [
+        'zip',
+        'rar',
+        '7z',
+        'tar',
+        'gz',
+        'tgz',
+        'bz2',
+        'xz',
+    ].includes(extension);
+}
 const isPhotoGallery = computed(() => {
     return props.document.is_photo === true
         || props.document.type?.is_photo === true
@@ -170,29 +201,86 @@ function safeUrl(value) {
 }
 
 async function requestPreview(file, signal) {
-    const response = await axios.post(
-        `/api/applications/${props.applicationId}`
-        + `/documents/${props.document.id}`
-        + `/files/${file.id}/preview-link`,
-        {},
-        {
-            signal,
-            headers: {
-                Accept: 'application/json',
+    if (isArchiveFile(file)) {
+        return {
+            kind: 'archive',
+        };
+    }
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+        const response = await axios.post(
+            `/api/applications/${props.applicationId}`
+            + `/documents/${props.document.id}`
+            + `/files/${file.id}/preview-link`,
+            {
+                // Только первое обращение разрешает новую попытку.
+                retry: attempt === 0,
             },
+            {
+                signal,
+                headers: {
+                    Accept: 'application/json',
+                },
+            }
+        );
+
+        const data = response.data?.data;
+
+        if (
+            response.status === 202
+            && data?.status === 'processing'
+        ) {
+            await waitForPreview(2000, signal);
+            continue;
         }
-    );
 
-    const data = response.data?.data;
+        if (data?.kind === 'text') {
+            return {
+                kind: 'text',
+                text: String(data.text ?? ''),
+            };
+        }
 
-    if (!['pdf', 'image'].includes(data?.kind)) {
-        throw new Error('Неподдерживаемое представление файла.');
+        if (!['pdf', 'image'].includes(data?.kind)) {
+            throw new Error(
+                'Неподдерживаемое представление файла.'
+            );
+        }
+
+        return {
+            kind: data.kind,
+            url: safeUrl(data.url),
+        };
     }
 
-    return {
-        kind: data.kind,
-        url: safeUrl(data.url),
-    };
+    throw new Error(
+        'Подготовка занимает больше времени. '
+        + 'Попробуйте открыть документ позднее.'
+    );
+}
+
+function waitForPreview(milliseconds, signal) {
+    return new Promise((resolve, reject) => {
+        if (signal.aborted) {
+            reject(new DOMException('Отменено', 'AbortError'));
+            return;
+        }
+
+        const onAbort = () => {
+            window.clearTimeout(timer);
+            signal.removeEventListener('abort', onAbort);
+
+            reject(new DOMException('Отменено', 'AbortError'));
+        };
+
+        const timer = window.setTimeout(() => {
+            signal.removeEventListener('abort', onAbort);
+            resolve();
+        }, milliseconds);
+
+        signal.addEventListener('abort', onAbort, {
+            once: true,
+        });
+    });
 }
 
 async function loadPage(page = 1, index = 0) {
@@ -245,6 +333,7 @@ async function loadPage(page = 1, index = 0) {
             disposed
             || requestSequence !== sequence
             || requestError.code === 'ERR_CANCELED'
+            || requestError.name === 'AbortError'
         ) {
             return;
         }
@@ -288,6 +377,7 @@ async function selectFile(index) {
             disposed
             || requestSequence !== sequence
             || requestError.code === 'ERR_CANCELED'
+            || requestError.name === 'AbortError'
         ) {
             return;
         }
@@ -620,5 +710,59 @@ button:focus-visible {
         min-width: 40px;
         min-height: 40px;
     }
+}
+
+.document-window-enter-active,
+.document-window-leave-active {
+    transition: opacity 200ms ease;
+    pointer-events: none;
+}
+
+.document-window-enter-active .preview-modal,
+.document-window-leave-active .preview-modal {
+    transition:
+        transform 200ms ease,
+        opacity 200ms ease;
+    transform-origin: bottom right;
+}
+
+.document-window-enter-from,
+.document-window-leave-to {
+    opacity: 0;
+}
+
+.document-window-enter-from .preview-modal,
+.document-window-leave-to .preview-modal {
+    opacity: 0;
+    transform: translateY(65px) scale(0.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .document-window-enter-active,
+    .document-window-leave-active,
+    .document-window-enter-active .preview-modal,
+    .document-window-leave-active .preview-modal {
+        transition: none;
+    }
+}
+
+.text-viewer {
+    height: 100%;
+    overflow: auto;
+    padding: 20px;
+    box-sizing: border-box;
+    background: #ffffff;
+}
+
+.text-viewer pre {
+    margin: 0;
+    color: #1e293b;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    tab-size: 4;
 }
 </style>

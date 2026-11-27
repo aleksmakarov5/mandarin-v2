@@ -14,6 +14,9 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use App\Jobs\Documents\BuildOfficePreview;
+use App\Services\Documents\OfficePreviewService;
+use Illuminate\Support\Facades\Cache;
 
 class DocumentPreviewController extends Controller
 {
@@ -40,6 +43,10 @@ class DocumentPreviewController extends Controller
         int $documentId,
         int $fileId
     ): JsonResponse {
+        $request->validate([
+            'retry' => ['sometimes', 'boolean'],
+        ]);
+
         $file = $this->resolveFile(
             $applicationId,
             $documentId,
@@ -47,26 +54,61 @@ class DocumentPreviewController extends Controller
             $request->user()
         );
 
+        $extension = strtolower((string) $file->extension);
+
+        if ($extension === 'txt') {
+            return $this->textPreview($file);
+        }
+
         $kind = self::PREVIEW_MIMES[$file->mime_type] ?? null;
 
         if ($kind === null) {
-            return response()->json([
-                'message' =>
-                    'Для этого формата ещё не подготовлено представление. '
-                    . 'Для DOCX/XLSX нужна серверная конвертация, '
-                    . 'для архивов — каталог содержимого.',
-            ], 422);
+            $office = app(OfficePreviewService::class);
+
+            if (!$office->supports($file)) {
+                return response()->json([
+                    'message' =>
+                        'Для этого формата просмотр пока не подключён. '
+                        . 'Исходный файл можно скачать.',
+                ], 422);
+            }
+
+            $prepared = $office->ready($file);
+
+            if (!$prepared) {
+                $errorKey = $office->errorKey($file->id);
+
+                if ($request->boolean('retry')) {
+                    Cache::forget($errorKey);
+                } elseif ($error = Cache::get($errorKey)) {
+                    return response()->json([
+                        'message' => $error,
+                    ], 422);
+                }
+
+                BuildOfficePreview::dispatch($file->id)
+                    ->onQueue('document-previews');
+
+                return response()->json([
+                    'data' => [
+                        'status' => 'processing',
+                    ],
+                ], 202)->header('Cache-Control', 'private, no-store');
+            }
+
+            $kind = 'pdf';
         }
 
+        /*
+         * В ссылке остаётся ID исходника.
+         * show() самостоятельно выбирает разрешённое представление.
+         */
         return response()->json([
             'data' => [
+                'status' => 'ready',
                 'kind' => $kind,
                 'name' => $file->original_name,
 
-                /*
-                 * Отдельная подпись именно для просмотра.
-                 * Ссылку скачивания не переиспользуем.
-                 */
                 'url' => URL::temporarySignedRoute(
                     'api.documents.files.preview',
                     now()->addMinutes(5),
@@ -111,11 +153,25 @@ class DocumentPreviewController extends Controller
             $user
         );
 
-        abort_unless(
-            isset(self::PREVIEW_MIMES[$file->mime_type]),
-            415,
-            'Этот формат нельзя показать напрямую.'
-        );
+        if (!isset(self::PREVIEW_MIMES[$file->mime_type])) {
+            $office = app(OfficePreviewService::class);
+
+            abort_unless(
+                $office->supports($file),
+                415,
+                'Этот формат нельзя показать напрямую.'
+            );
+
+            $prepared = $office->ready($file);
+
+            abort_unless(
+                $prepared !== null,
+                409,
+                'Представление документа ещё не готово.'
+            );
+
+            $file = $prepared;
+        }
 
         abort_unless(
             filled($file->storage_disk)
@@ -213,5 +269,82 @@ class DocumentPreviewController extends Controller
                 'generated_pdf',
             ])
             ->findOrFail($fileId);
+    }
+    private function textPreview(DocumentFile $file): JsonResponse
+    {
+        $limit = (int) config(
+            'documents.text_preview.max_bytes',
+            1024 * 1024
+        );
+
+        abort_if(
+            $file->file_size > $limit,
+            422,
+            'Текст слишком большой для встроенного просмотра. '
+            . 'Скачайте исходный файл.'
+        );
+
+        $stream = Storage::disk($file->storage_disk)
+            ->readStream($file->storage_path);
+
+        abort_unless(is_resource($stream), 404);
+
+        try {
+            $text = stream_get_contents($stream, $limit + 1);
+        } finally {
+            fclose($stream);
+        }
+
+        abort_if(
+            $text === false || strlen($text) > $limit,
+            422,
+            'Не удалось прочитать текстовый файл.'
+        );
+
+        // UTF-8 BOM.
+        if (str_starts_with($text, "\xEF\xBB\xBF")) {
+            $text = substr($text, 3);
+        }
+
+        abort_if(
+            str_contains($text, "\0"),
+            422,
+            'Эта кодировка текста пока не поддерживается.'
+        );
+
+        if (!preg_match('//u', $text)) {
+            abort_unless(
+                function_exists('iconv'),
+                422,
+                'Для просмотра текста требуется преобразование кодировки.'
+            );
+
+            /*
+             * Для старых русскоязычных TXT пробуем Windows-1251.
+             * Другие кодировки позже добавим явным переключателем.
+             */
+            $converted = @iconv(
+                'Windows-1251',
+                'UTF-8',
+                $text
+            );
+
+            abort_if(
+                $converted === false,
+                422,
+                'Не удалось определить кодировку текста.'
+            );
+
+            $text = $converted;
+        }
+
+        return response()->json([
+            'data' => [
+                'status' => 'ready',
+                'kind' => 'text',
+                'name' => $file->original_name,
+                'text' => $text,
+            ],
+        ])->header('Cache-Control', 'private, no-store');
     }
 }

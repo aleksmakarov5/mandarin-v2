@@ -8,7 +8,10 @@
         @close="close" />
 
     <Teleport to="body">
-        <DocumentViewerDock v-if="document && minimized" :document="document" @restore="restore" @close="close" />
+        <Transition name="viewer-dock">
+
+            <DocumentViewerDock v-if="document && minimized" :document="document" @restore="restore" @close="close" />
+        </Transition>
     </Teleport>
 </template>
 
@@ -26,3 +29,25 @@ const {
     close,
 } = useDocumentViewer();
 </script>
+<style scoped>
+.viewer-dock-enter-active,
+.viewer-dock-leave-active {
+    transition:
+        opacity 180ms ease,
+        transform 180ms ease;
+}
+
+.viewer-dock-enter-from,
+.viewer-dock-leave-to {
+    opacity: 0;
+    transform: translateY(18px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .viewer-dock-enter-active,
+    .viewer-dock-leave-active {
+        transition: none;
+    }
+}
+</style>

@@ -22,6 +22,53 @@ return [
         'DOCUMENTS_TEMP_DISK',
         'documents_local'
     ),
+    'office' => [
+        'executable' => env(
+            'LIBREOFFICE_BINARY',
+            PHP_OS_FAMILY === 'Windows'
+            ? 'C:/Program Files/LibreOffice/program/soffice.exe'
+            : '/usr/bin/libreoffice'
+        ),
+
+        'timeout' => 150,
+
+        // Ограничение именно для автоматического просмотра.
+        'max_source_bytes' => 100 * 1024 * 1024,
+    ],
+    'archives' => [
+        'executable' => env(
+            'DOCUMENTS_ARCHIVE_BINARY',
+            PHP_OS_FAMILY === 'Windows'
+            ? 'C:/Program Files/7-Zip/7z.exe'
+            : '/usr/bin/7z'
+        ),
+
+        'allowed_extensions' => [
+            'zip',
+            'rar',
+            '7z',
+            'tar',
+        ],
+
+        'max_entries' => 10000,
+        'max_entry_bytes' => 209715200,
+        'max_uncompressed_bytes' => 32212254720,
+        'max_path_length' => 500,
+
+        'preview_mimes' => [
+            'application/pdf',
+            'image/jpeg',
+            'image/png',
+            'image/webp',
+            'image/gif',
+            'text/plain',
+        ],
+    ],
+
+    'text_preview' => [
+        'max_bytes' => 1024 * 1024,
+    ],
+
 
     'uploads' => [
         /*
@@ -122,28 +169,5 @@ return [
         ],
     ],
 
-    'archives' => [
-        /*
-         * Расширение — только предварительная проверка.
-         * Содержимое проверяется сервером отдельно.
-         */
-        'allowed_extensions' => [
-            'zip',
-            'rar',
-            '7z',
-        ],
 
-        /*
-         * Ограничения защищают от архивных бомб
-         * и неконтролируемой распаковки.
-         */
-        'max_entries' => 10000,
-
-        'max_uncompressed_bytes' => (int) env(
-            'DOCUMENTS_ARCHIVE_MAX_UNCOMPRESSED_BYTES',
-            30 * 1024 * 1024 * 1024
-        ),
-
-        'max_compression_ratio' => 200,
-    ],
 ];

@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
 
 class DocumentFile extends Model
 {
@@ -35,6 +37,9 @@ class DocumentFile extends Model
         'parent_file_id',
         'width',
         'height',
+        'archive_index_status',
+        'archive_indexed_at',
+        'archive_index_error',
     ];
 
     protected $casts = [
@@ -43,6 +48,7 @@ class DocumentFile extends Model
         'height' => 'integer',
         'is_current' => 'boolean',
         'is_inline' => 'boolean',
+        'archive_indexed_at' => 'datetime',
     ];
 
     // protected $appends = [
@@ -84,4 +90,20 @@ class DocumentFile extends Model
             'file' => $this->id,
         ]);
     }
+    public function archiveEntries(): HasMany
+    {
+        return $this->hasMany(
+            ArchiveEntry::class,
+            'archive_file_id'
+        );
+    }
+    public function isArchiveSource(): bool
+    {
+        return in_array(
+            strtolower((string) $this->extension),
+            ['zip', 'rar', '7z', 'tar', 'gz', 'tgz'],
+            true
+        );
+    }
+
 }

@@ -99,6 +99,19 @@ Route::get(
     ->whereNumber('fileId')
     ->where('kind', 'thumbnail|main')
     ->name('api.documents.gallery.media');
+Route::get(
+    'applications/{applicationId}/documents/{documentId}'
+    . '/download-content/{fileId}',
+    [
+        \App\Http\Controllers\Api\DocumentDownloadController::class,
+        'content',
+    ]
+)
+    ->middleware('signed:relative')
+    ->whereNumber('applicationId')
+    ->whereNumber('documentId')
+    ->whereNumber('fileId')
+    ->name('api.documents.download.content');
 /*
 |--------------------------------------------------------------------------
 | Защищенные маршруты (Sanctum Bearer Token)
@@ -149,7 +162,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // 4. Документы
     Route::post('/applications/{id}/documents', [ApplicationDocumentController::class, 'store']);
-    Route::delete('/applications/{id}/documents/{documentId}', [ApplicationDocumentController::class, 'destroy']);
     Route::get('/applications/{id}/documents/generate', [ApplicationDocumentController::class, 'generatePdf']);
     // Текущий пользователь и выход
     Route::get('/auth/me', [AuthController::class, 'me']);
@@ -453,7 +465,69 @@ Route::middleware('auth:sanctum')->group(function () {
     )
         ->whereNumber('applicationId')
         ->whereNumber('documentId');
+    Route::patch(
+        'applications/{applicationId}/documents/{documentId}/title',
+        [
+            \App\Http\Controllers\Api\DocumentActionController::class,
+            'rename',
+        ]
+    )
+        ->whereNumber('applicationId')
+        ->whereNumber('documentId')
+        ->name('api.documents.rename');
+    // Комплекты назначения для копирования и перемещения фотографий.
+    Route::get(
+        'applications/{applicationId}/documents/{documentId}/photo-destinations',
+        [
+            \App\Http\Controllers\Api\DocumentActionController::class,
+            'destinations',
+        ]
+    )
+        ->whereNumber('applicationId')
+        ->whereNumber('documentId');
 
+    // Удаление, копирование и перемещение выбранных фотографий.
+    Route::post(
+        'applications/{applicationId}/documents/{documentId}/photo-actions',
+        [
+            \App\Http\Controllers\Api\DocumentActionController::class,
+            'photos',
+        ]
+    )
+        ->whereNumber('applicationId')
+        ->whereNumber('documentId');
+
+    // Удаление целого документа или фотокомплекта.
+    Route::delete(
+        'applications/{applicationId}/documents/{documentId}',
+        [
+            \App\Http\Controllers\Api\DocumentActionController::class,
+            'destroy',
+        ]
+    )
+        ->whereNumber('applicationId')
+        ->whereNumber('documentId')
+        ->name('api.documents.destroy');
+    Route::post(
+        'applications/{applicationId}/documents/{documentId}/download',
+        [
+            \App\Http\Controllers\Api\DocumentDownloadController::class,
+            'prepare',
+        ]
+    )
+        ->whereNumber('applicationId')
+        ->whereNumber('documentId');
+    Route::get(
+        'applications/{applicationId}/documents/{documentId}'
+        . '/archives/{archiveFileId}/entries',
+        [
+            \App\Http\Controllers\Api\ArchiveEntryController::class,
+            'index',
+        ]
+    )
+        ->whereNumber('applicationId')
+        ->whereNumber('documentId')
+        ->whereNumber('archiveFileId');
     // Эндпоинт опций справочника работ для сметы
 
 });

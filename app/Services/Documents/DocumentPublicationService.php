@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
+use App\Jobs\Documents\IndexArchive;
 
 class DocumentPublicationService
 {
@@ -146,6 +147,75 @@ class DocumentPublicationService
                 $mime,
                 $type
             );
+            if (in_array($extension, ['docx', 'odt'], true)) {
+                if (!fflush($working)) {
+                    throw new RuntimeException(
+                        'Не удалось подготовить документ к проверке.'
+                    );
+                }
+
+                $container = new \ZipArchive();
+                $opened = $container->open($localPath);
+
+                if ($opened !== true) {
+                    throw new RuntimeException(
+                        'Некорректный контейнер офисного документа.'
+                    );
+                }
+
+                try {
+                    if ($container->numFiles > 10000) {
+                        throw new RuntimeException(
+                            'Офисный документ содержит слишком много элементов.'
+                        );
+                    }
+
+                    if ($extension === 'docx') {
+                        $valid = $container->locateName('[Content_Types].xml') !== false
+                            && $container->locateName('word/document.xml') !== false;
+
+                        if (!$valid) {
+                            throw new RuntimeException(
+                                'Файл не является документом DOCX.'
+                            );
+                        }
+
+                        for ($index = 0; $index < $container->numFiles; $index++) {
+                            $entry = $container->getNameIndex($index);
+
+                            if (
+                                is_string($entry)
+                                && str_ends_with(
+                                    strtolower($entry),
+                                    'vbaproject.bin'
+                                )
+                            ) {
+                                throw new RuntimeException(
+                                    'Документы с VBA-макросами пока не принимаются.'
+                                );
+                            }
+                        }
+                    }
+
+                    if ($extension === 'odt') {
+                        $mimetype = $container->getFromName(
+                            'mimetype',
+                            128
+                        );
+
+                        if (
+                            $mimetype !== 'application/vnd.oasis.opendocument.text'
+                            || $container->locateName('content.xml') === false
+                        ) {
+                            throw new RuntimeException(
+                                'Файл не является документом ODT.'
+                            );
+                        }
+                    }
+                } finally {
+                    $container->close();
+                }
+            }
             $storedSize = (int) $item->file_size;
 
             $rasterMimes = [
@@ -306,7 +376,31 @@ class DocumentPublicationService
                     $type,
                     $user
                 );
+                $isGalleryPhoto = (bool) $type?->is_photo
+                    && str_starts_with($mime, 'image/');
 
+                $sortOrder = 0;
+
+                if ($isGalleryPhoto) {
+                    /*
+                     * Добавляем фотографию в конец текущего комплекта.
+                     * Удалённые записи исключаются через SoftDeletes.
+                     *
+                     * Публикация уже удерживает блокировку дела,
+                     * а существующий документ блокируется
+                     * внутри resolveDocument().
+                     */
+                    $lastPosition = DocumentFile::query()
+                        ->where('document_id', $document->id)
+                        ->where('file_role', 'original')
+                        ->where('is_current', true)
+                        ->where('mime_type', 'like', 'image/%')
+                        ->max('sort_order');
+
+                    $sortOrder = $lastPosition === null
+                        ? 1
+                        : (int) $lastPosition + 1;
+                }
                 $file = DocumentFile::create([
                     'document_id' => $document->id,
                     'file_role' => 'original',
@@ -338,6 +432,7 @@ class DocumentPublicationService
                     'sha256' => $sha256,
                     'width' => $imageWidth,
                     'height' => $imageHeight,
+                    'sort_order' => $sortOrder,
                     /*
                      * Для фотографии готов нормализованный JPEG.
                      * Миниатюры галереи создаются отдельно.
@@ -384,8 +479,24 @@ class DocumentPublicationService
                 $lockedItem->error = null;
                 $lockedItem->save();
 
+                if ($isGalleryPhoto) {
+                    /*
+                     * Состав комплекта изменился:
+                     * прежняя версия ZIP больше не актуальна.
+                     *
+                     * Основной файл, миниатюра и новая версия документа
+                     * фиксируются одной транзакцией.
+                     */
+                    $document->content_revision =
+                        (int) $document->content_revision + 1;
+
+                    $document->archive_status = 'pending';
+                    $document->archive_error = null;
+                }
+
                 $document->updated_by_user_id = $user->id;
-                $document->touch();
+                $document->save();
+
 
                 /*
                  * Счётчики считаем по БД, а не увеличиваем:
@@ -458,8 +569,96 @@ class DocumentPublicationService
                 }
             }
         }
-    }
+        /*
+         * Транзакция уже завершена.
+         * Ошибка постановки индексации не должна отменять
+         * успешно опубликованный исходный архив.
+         */
+        if ($registered) {
+            $publishedFileId = DocumentUploadItem::query()
+                ->whereKey($itemId)
+                ->value('document_file_id');
 
+            if ($publishedFileId !== null) {
+                $this->queueArchiveIndex(
+                    (int) $publishedFileId
+                );
+            }
+        }
+    }
+    private function queueArchiveIndex(int $fileId): void
+    {
+        $archive = DocumentFile::query()
+            ->where('file_role', 'original')
+            ->where('is_current', true)
+            ->where('processing_status', 'ready')
+            ->find($fileId);
+
+        if ($archive === null) {
+            return;
+        }
+
+        /*
+         * Сейчас подключены именно эти форматы.
+         * TAR.GZ/TGZ требуют отдельного прохода
+         * по внутреннему TAR.
+         */
+        $extension = strtolower(
+            (string) $archive->extension
+        );
+
+        if (
+            !in_array(
+                $extension,
+                ['zip', 'rar', '7z', 'tar'],
+                true
+            )
+        ) {
+            return;
+        }
+
+        try {
+            $archive->forceFill([
+                'archive_index_status' => 'pending',
+                'archive_index_error' => null,
+            ])->save();
+
+            IndexArchive::dispatch($archive->id)
+                ->onQueue('document-archives');
+        } catch (Throwable $error) {
+            /*
+             * Документ уже опубликован и доступен
+             * для скачивания целиком.
+             *
+             * Не превращаем ошибку очереди индексации
+             * в ошибку публикации исходника.
+             */
+            Log::error(
+                'Не удалось поставить индексацию архива в очередь.',
+                [
+                    'document_file_id' => $archive->id,
+                    'error' => $error->getMessage(),
+                ]
+            );
+
+            try {
+                $archive->forceFill([
+                    'archive_index_status' => 'failed',
+                    'archive_index_error' =>
+                        'Не удалось запустить подготовку каталога. '
+                        . 'Исходный архив сохранён.',
+                ])->save();
+            } catch (Throwable $stateError) {
+                Log::error(
+                    'Не удалось сохранить состояние индексации архива.',
+                    [
+                        'document_file_id' => $archive->id,
+                        'error' => $stateError->getMessage(),
+                    ]
+                );
+            }
+        }
+    }
     private function resolveDocument(
         Application $application,
         DocumentUploadBatch $batch,
@@ -578,6 +777,35 @@ class DocumentPublicationService
                 'application/x-zip',
                 'application/x-zip-compressed',
             ],
+            'docx' => [
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/zip',
+            ],
+
+            'doc' => [
+                'application/msword',
+                'application/x-ole-storage',
+                'application/CDFV2',
+                'application/vnd.ms-office',
+            ],
+
+            'odt' => [
+                'application/vnd.oasis.opendocument.text',
+                'application/zip',
+            ],
+
+            'rtf' => [
+                'application/rtf',
+                'text/rtf',
+                'text/plain',
+            ],
+
+            'txt' => [
+                'text/plain',
+                'application/x-empty',
+                'inode/x-empty',
+            ],
+
         ];
 
         if (!isset($mimeByExtension[$extension])) {

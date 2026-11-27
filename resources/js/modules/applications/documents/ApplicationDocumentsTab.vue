@@ -30,6 +30,9 @@
         <div v-if="error" class="documents-error" role="alert">
             {{ error }}
         </div>
+        <div v-if="documentDownloadError" class="documents-error" role="alert">
+            {{ documentDownloadError }}
+        </div>
 
         <div v-if="loading && !hasLoadedData" class="documents-loading">
             <span class="spinner-border spinner-border-sm me-2"></span>
@@ -81,8 +84,10 @@
                     <div class="section-body">
                         <div v-if="itemsFor(section.code).length" class="document-tiles-grid">
                             <DocumentTile v-for="item in itemsFor(section.code)" :key="item.id" :item="item"
-                                :manage="permissions.manage === true" @assign-type="assigning = $event"
-                                @open="openDocumentViewer" />
+                                :manage="permissions.manage === true && !documentActionBusy"
+                                @assign-type="assigning = $event" @open="openDocumentViewer" @rename="renameDocument"
+                                @delete="deleteDocument" :downloading="downloadingIds.has(Number(item.id))"
+                                @download="downloadFromTile" />
                         </div>
 
                         <div v-if="
@@ -141,10 +146,19 @@
 <script setup>
 import {
     computed,
-    reactive,
+    reactive, onBeforeUnmount,
     ref,
     watch,
 } from 'vue';
+import { downloadDocument }
+    from './services/downloadDocument';
+import axios from 'axios';
+
+import { documentRequestKey }
+    from './services/documentRequestKey';
+
+import { useDocumentViewer }
+    from './composables/useDocumentViewer';
 
 import { documentCategories } from './documentCategories';
 import { useDocuments } from './composables/useDocuments';
@@ -156,8 +170,6 @@ import DocumentAssignTypeModal
 
 import DocumentFilesModal
     from './components/DocumentFilesModal.vue';
-import { useDocumentViewer }
-    from './composables/useDocumentViewer';
 import { useDocumentUploadWindow }
     from './composables/useDocumentUploadWindow';
 
@@ -172,7 +184,169 @@ const props = defineProps({
     },
 });
 
-const { open: openDocumentViewer } = useDocumentViewer();
+const { open: openDocumentViewer, document: viewedDocument,
+
+    close: closeDocumentViewer, } = useDocumentViewer();
+
+const documentActionBusy = ref(false);
+const downloadingIds = ref(new Set());
+const documentDownloadError = ref('');
+
+const downloadControllers = new Map();
+
+async function downloadFromTile(item) {
+    const id = Number(item.id);
+
+    if (downloadControllers.has(id)) return;
+
+    const controller = new AbortController();
+
+    downloadControllers.set(id, controller);
+
+    downloadingIds.value = new Set([
+        ...downloadingIds.value,
+        id,
+    ]);
+
+    documentDownloadError.value = '';
+
+    try {
+        await downloadDocument({
+            applicationId: applicationId.value,
+            documentId: id,
+            signal: controller.signal,
+        });
+    } catch (err) {
+        if (
+            controller.signal.aborted
+            || err.code === 'ERR_CANCELED'
+            || err.name === 'AbortError'
+        ) {
+            return;
+        }
+
+        documentDownloadError.value =
+            err.response?.data?.message
+            || err.message
+            || 'Не удалось скачать документ.';
+    } finally {
+        downloadControllers.delete(id);
+
+        const next = new Set(downloadingIds.value);
+        next.delete(id);
+        downloadingIds.value = next;
+    }
+}
+
+function stopDownloadWaiting() {
+    for (const controller of downloadControllers.values()) {
+        controller.abort();
+    }
+
+    downloadControllers.clear();
+    downloadingIds.value = new Set();
+}
+
+watch(
+    () => props.applicationId,
+    stopDownloadWaiting
+);
+
+onBeforeUnmount(stopDownloadWaiting);
+async function renameDocument(item) {
+    if (documentActionBusy.value || !permissions.value.manage) return;
+
+    const entered = window.prompt(
+        'Название документа:',
+        item.title || ''
+    );
+
+    if (entered === null) return;
+
+    const title = entered.trim();
+
+    if (!title) {
+        window.alert('Название не должно быть пустым.');
+        return;
+    }
+
+    if (title.length > 255) {
+        window.alert('Название должно содержать не более 255 символов.');
+        return;
+    }
+
+    if (title === item.title) return;
+
+    documentActionBusy.value = true;
+
+    try {
+        await axios.patch(
+            `/api/applications/${applicationId.value}`
+            + `/documents/${item.id}/title`,
+            {
+                request_key: documentRequestKey(),
+                title,
+            }
+        );
+
+        /*
+         * Если документ открыт, обновляем также заголовок
+         * постоянного просмотрщика.
+         */
+        if (Number(viewedDocument.value?.id) === Number(item.id)) {
+            openDocumentViewer({
+                ...viewedDocument.value,
+                title,
+            });
+        }
+
+        await loadAll();
+    } catch (err) {
+        window.alert(
+            err.response?.data?.message
+            || 'Не удалось переименовать документ.'
+        );
+    } finally {
+        documentActionBusy.value = false;
+    }
+}
+
+async function deleteDocument(item) {
+    if (documentActionBusy.value || !permissions.value.manage) return;
+
+    if (!window.confirm(
+        `Удалить «${item.title || 'Документ'}» вместе со всеми файлами?`
+    )) {
+        return;
+    }
+
+    documentActionBusy.value = true;
+
+    try {
+        await axios.delete(
+            `/api/applications/${applicationId.value}`
+            + `/documents/${item.id}`,
+            {
+                data: {
+                    request_key: documentRequestKey(),
+                },
+            }
+        );
+
+        if (Number(viewedDocument.value?.id) === Number(item.id)) {
+            closeDocumentViewer();
+        }
+
+        await loadAll();
+    } catch (err) {
+        window.alert(
+            err.response?.data?.message
+            || 'Не удалось удалить документ.'
+        );
+    } finally {
+        documentActionBusy.value = false;
+    }
+}
 const {
     applicationId,
     itemsByCategory,

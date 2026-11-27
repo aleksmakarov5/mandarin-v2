@@ -7,7 +7,7 @@
             </div>
 
             <div class="toolbar-actions">
-                <button type="button" :disabled="loading || orderSaving" @click="load">
+                <button type="button" :disabled="loading || orderSaving || photoActionBusy" @click="load">
                     <i class="bi bi-arrow-clockwise"></i>
                     Обновить
                 </button>
@@ -29,6 +29,77 @@
             <button type="button" @click="clearSelection">
                 Снять выделение
             </button>
+            <template v-if="canManage">
+                <button type="button" :disabled="photoActionBusy || orderSaving" @click="openPhotoTransfer('copy')">
+                    <i class="bi bi-copy" aria-hidden="true"></i>
+                    Копировать
+                </button>
+
+                <button type="button" :disabled="photoActionBusy || orderSaving" @click="openPhotoTransfer('move')">
+                    <i class="bi bi-folder-symlink" aria-hidden="true"></i>
+                    Переместить
+                </button>
+
+                <button type="button" class="photo-delete-button" :disabled="photoActionBusy || orderSaving"
+                    @click="deleteSelectedPhotos">
+                    <i class="bi bi-trash3" aria-hidden="true"></i>
+                    Удалить
+                </button>
+            </template>
+        </div>
+        <div v-if="transferOpen" class="photo-transfer-panel">
+            <strong>
+                {{
+                    transferAction === 'copy'
+                        ? 'Копирование фотографий'
+                        : 'Перемещение фотографий'
+                }}
+                · {{ actionPhotoIds.length }}
+            </strong>
+
+            <span v-if="transferLoading">Загрузка комплектов…</span>
+
+            <template v-else>
+                <label>
+                    Комплект назначения
+
+                    <select v-model="transferTargetId" :disabled="photoActionBusy">
+                        <option value="">Выберите комплект</option>
+
+                        <option v-for="target in transferTargets" :key="target.id" :value="target.id">
+                            {{ target.title }} ·
+                            {{ target.photos_count }} фото ·
+                            №{{ target.id }}
+                        </option>
+                    </select>
+                </label>
+
+                <small v-if="!transferTargets.length">
+                    Других фотокомплектов в этом деле нет.
+                    Сначала создайте комплект через загрузку фотографий.
+                </small>
+
+                <div class="toolbar-actions">
+                    <button type="button" :disabled="!transferTargetId
+                        || photoActionBusy
+                        || Boolean(pendingPhotoRequest)
+                        " @click="confirmPhotoTransfer">
+                        {{ photoActionBusy ? 'Выполняется…' : 'Подтвердить' }}
+                    </button>
+
+                    <button type="button" :disabled="photoActionBusy" @click="transferOpen = false">
+                        Отмена
+                    </button>
+                </div>
+            </template>
+        </div>
+
+        <div v-if="photoActionError" class="gallery-error" role="alert">
+            {{ photoActionError }}
+
+            <button v-if="pendingPhotoRequest" type="button" :disabled="photoActionBusy" @click="retryPhotoAction">
+                Повторить тот же запрос
+            </button>
         </div>
 
         <div v-if="error || orderError" class="gallery-error" role="alert">
@@ -41,76 +112,15 @@
 
         <template v-else-if="!error">
             <!-- Одна фотография -->
-            <section v-if="currentPhoto" class="single-view" aria-label="Просмотр фотографии"
-                @touchstart.passive="touchStart" @touchend.passive="touchEnd">
-                <div class="single-toolbar">
-                    <button type="button" @click="closePhoto">
-                        ← В сетку
-                    </button>
-
-                    <span>
-                        {{ currentIndex + 1 }} / {{ photos.length }}
-                    </span>
-
-                    <div class="zoom-actions">
-                        <button type="button" aria-label="Уменьшить" :disabled="zoom <= 1"
-                            @click="zoom = Math.max(1, zoom - 0.5)">−</button>
-
-                        <button type="button" title="Сбросить масштаб" @click="zoom = 1">
-                            {{ Math.round(zoom * 100) }}%
-                        </button>
-
-                        <button type="button" aria-label="Увеличить" :disabled="zoom >= 3"
-                            @click="zoom = Math.min(3, zoom + 0.5)">+</button>
-                    </div>
-                </div>
-
-                <div class="single-stage">
-                    <div v-if="
-                        currentPresentation?.screen
-                        && !currentPresentation?.screenError
-                    " class="image-scroll">
-                        <div class="image-canvas" :style="{
-                            width: `${zoom * 100}%`,
-                            height: `${zoom * 100}%`,
-                        }">
-                            <img :src="currentPresentation.screen" :alt="currentPhoto.original_name"
-                                referrerpolicy="no-referrer" draggable="false"
-                                @error="markMediaError(currentPhoto.id, 'screen')" />
-                        </div>
-                    </div>
-
-                    <div v-else class="single-message">
-                        <p>
-                            {{
-                                currentPresentation?.screenError
-                                || 'Основное изображение недоступно.'
-                            }}
-                        </p>
-
-                        <button type="button" :disabled="loading || orderSaving" @click="load">
-                            Обновить галерею
-                        </button>
-                    </div>
-                </div>
-
-                <footer class="single-footer">
-                    <button type="button" :disabled="currentIndex <= 0" @click="move(-1)">
-                        ← Предыдущая
-                    </button>
-
-                    <span :title="currentPhoto.original_name">
-                        {{ currentPhoto.original_name }}
-                    </span>
-
-                    <button type="button" :disabled="currentIndex >= photos.length - 1" @click="move(1)">
-                        Следующая →
-                    </button>
-                </footer>
-            </section>
+            <PhotoFullscreenViewer v-if="currentPhoto" :photo="currentPhoto" :src="currentPresentation?.screen || null"
+                :error="currentPresentation?.screenError || ''" :index="currentIndex" :total="photos.length"
+                :manageable="canManage" :busy="photoActionBusy || orderSaving" :active="active" @previous="move(-1)"
+                @next="move(1)" @close="closePhoto" @minimize="minimizeViewer"
+                @image-error="markMediaError($event, 'screen')" @delete="deleteCurrentPhoto"
+                @move="transferCurrentPhoto('move', $event)" @copy="transferCurrentPhoto('copy', $event)" />
 
             <!-- Сетка -->
-            <div v-else class="grid-scroll">
+            <div class="grid-scroll">
                 <div v-if="!photos.length" class="gallery-empty">
                     В этом комплекте пока нет фотографий.
                 </div>
@@ -153,7 +163,8 @@ import {
     ref,
     watch,
 } from 'vue';
-
+import PhotoFullscreenViewer
+    from './components/PhotoFullscreenViewer.vue';
 import Sortable from 'sortablejs';
 
 import PhotoGalleryTile from './components/PhotoGalleryTile.vue';
@@ -163,6 +174,11 @@ import { useDocumentUploadWindow }
     from '../composables/useDocumentUploadWindow';
 import { useDocumentViewer }
     from '../composables/useDocumentViewer';
+
+import axios from 'axios';
+
+import { documentRequestKey }
+    from '../services/documentRequestKey';
 
 const props = defineProps({
     applicationId: {
@@ -201,6 +217,180 @@ const {
     () => props.active
 );
 
+const photoActionBusy = ref(false);
+const photoActionError = ref('');
+
+const transferAction = ref('');
+const transferTargets = ref([]);
+const transferTargetId = ref('');
+
+const transferOpen = ref(false);
+const transferLoading = ref(false);
+
+/*
+ * Снимок выделения и версии на момент открытия действия.
+ */
+const actionPhotoIds = ref([]);
+const actionRevision = ref(0);
+
+/*
+ * Храним тело последней операции, чтобы сетевой повтор
+ * не создал повторные копии.
+ */
+const pendingPhotoRequest = ref(null);
+
+function actionMessage(err) {
+    const validation = err.response?.data?.errors;
+
+    return validation
+        ? Object.values(validation).flat()[0]
+        : err.response?.data?.message
+        || err.message
+        || 'Не удалось выполнить действие.';
+}
+
+async function sendPhotoRequest(payload) {
+    if (photoActionBusy.value) return;
+
+    photoActionBusy.value = true;
+    photoActionError.value = '';
+
+    pendingPhotoRequest.value = payload;
+
+    try {
+        await axios.post(
+            `/api/applications/${props.applicationId}`
+            + `/documents/${props.document.id}/photo-actions`,
+            payload
+        );
+
+        pendingPhotoRequest.value = null;
+
+        transferOpen.value = false;
+        clearSelection();
+
+        await load();
+    } catch (err) {
+        photoActionError.value = actionMessage(err);
+
+        /*
+         * При однозначном отказе повтор прежней операции
+         * бессмысленен. При сетевой ошибке сохраняем ключ.
+         */
+        if (
+            err.response
+            && err.response.status >= 400
+            && err.response.status < 500
+        ) {
+            pendingPhotoRequest.value = null;
+        }
+    } finally {
+        photoActionBusy.value = false;
+    }
+}
+
+function retryPhotoAction() {
+    if (pendingPhotoRequest.value) {
+        sendPhotoRequest(pendingPhotoRequest.value);
+    }
+}
+
+async function deleteSelectedPhotos() {
+    if (
+        !canManage.value
+        || !selectedCount.value
+        || orderSaving.value
+        || photoActionBusy.value
+    ) {
+        return;
+    }
+
+    if (!window.confirm(
+        `Удалить выбранные фотографии (${selectedCount.value}) `
+        + 'из этого комплекта?'
+    )) {
+        return;
+    }
+
+    await sendPhotoRequest({
+        request_key: documentRequestKey(),
+        action: 'delete',
+        revision: info.value.content_revision,
+        photo_ids: [...selectedIds.value],
+    });
+}
+
+async function openPhotoTransfer(action, explicitIds = null) {
+    const ids = explicitIds === null
+        ? [...selectedIds.value]
+        : explicitIds;
+
+    if (
+        !['copy', 'move'].includes(action)
+        || !canManage.value
+        || !ids.length
+        || loading.value
+        || orderSaving.value
+        || photoActionBusy.value
+        || pendingPhotoRequest.value
+    ) {
+        return;
+    }
+
+    const existingIds = new Set(
+        photos.value.map(photo => Number(photo.id))
+    );
+
+    const requestedIds = [...new Set(ids.map(Number))];
+
+    if (requestedIds.some(id => !existingIds.has(id))) {
+        photoActionError.value =
+            'Фотография больше не доступна. Обновите галерею.';
+        return;
+    }
+
+    transferAction.value = action;
+    transferTargetId.value = '';
+    transferTargets.value = [];
+
+    actionPhotoIds.value = requestedIds;
+    actionRevision.value = info.value.content_revision;
+
+    photoActionError.value = '';
+    transferLoading.value = true;
+    transferOpen.value = true;
+
+    try {
+        const response = await axios.get(
+            `/api/applications/${props.applicationId}`
+            + `/documents/${props.document.id}/photo-destinations`
+        );
+
+        transferTargets.value = response.data.data || [];
+    } catch (err) {
+        photoActionError.value = actionMessage(err);
+    } finally {
+        transferLoading.value = false;
+    }
+}
+
+async function confirmPhotoTransfer() {
+    const target = transferTargets.value.find(item => {
+        return Number(item.id) === Number(transferTargetId.value);
+    });
+
+    if (!target || photoActionBusy.value) return;
+
+    await sendPhotoRequest({
+        request_key: documentRequestKey(),
+        action: transferAction.value,
+        revision: actionRevision.value,
+        photo_ids: actionPhotoIds.value,
+        target_document_id: target.id,
+        target_revision: target.content_revision,
+    });
+}
+
 const {
     uploadModalRef,
     lastUploadedBatch,
@@ -208,10 +398,9 @@ const {
 const { minimize: minimizeViewer } = useDocumentViewer();
 const grid = ref(null);
 const openedPhotoId = ref(null);
-const zoom = ref(1);
+
 
 let sortable = null;
-let touch = null;
 
 const currentIndex = computed(() => {
     return photos.value.findIndex(
@@ -233,12 +422,77 @@ const currentPresentation = computed(() => {
 
 function openPhoto(id) {
     openedPhotoId.value = Number(id);
-    zoom.value = 1;
+
+}
+
+async function deleteCurrentPhoto(photoId) {
+    if (
+        !canManage.value
+        || !info.value
+        || photoActionBusy.value
+        || orderSaving.value
+        || pendingPhotoRequest.value
+    ) {
+        return;
+    }
+
+    const id = Number(photoId);
+    const photo = photos.value.find(item => Number(item.id) === id);
+
+    if (!photo) return;
+
+    if (!window.confirm(
+        `Удалить фотографию «${photo.original_name}» из комплекта?`
+    )) {
+        return;
+    }
+
+    /*
+     * После успешного удаления открываем соседнюю фотографию.
+     * При ошибке остаёмся на текущей.
+     */
+    const index = photos.value.findIndex(item => Number(item.id) === id);
+
+    const neighbourId = photos.value[index + 1]?.id
+        ?? photos.value[index - 1]?.id
+        ?? null;
+
+    await sendPhotoRequest({
+        request_key: documentRequestKey(),
+        action: 'delete',
+        revision: info.value.content_revision,
+        photo_ids: [id],
+    });
+
+    const stillExists = photos.value.some(item => Number(item.id) === id);
+
+    if (!stillExists) {
+        const neighbour = photos.value.find(item => {
+            return Number(item.id) === Number(neighbourId);
+        });
+
+        openedPhotoId.value = neighbour
+            ? Number(neighbour.id)
+            : null;
+    } else if (photoActionError.value) {
+        // Ошибка находится в панели галереи — делаем её видимой.
+        closePhoto();
+    }
+}
+
+async function transferCurrentPhoto(action, photoId) {
+    /*
+     * Открываем существующую панель выбора комплекта.
+     * Полноэкранное фото закрываем, но саму галерею не закрываем.
+     */
+    closePhoto();
+
+    await openPhotoTransfer(action, [Number(photoId)]);
 }
 
 function closePhoto() {
     openedPhotoId.value = null;
-    zoom.value = 1;
+
 }
 
 function move(direction) {
@@ -247,61 +501,6 @@ function move(direction) {
     if (next) openPhoto(next.id);
 }
 
-
-
-function touchStart(event) {
-    if (zoom.value !== 1 || event.touches.length !== 1) {
-        touch = null;
-        return;
-    }
-
-    touch = {
-        x: event.touches[0].clientX,
-        y: event.touches[0].clientY,
-    };
-}
-
-function touchEnd(event) {
-    if (!touch || zoom.value !== 1) return;
-
-    const point = event.changedTouches[0];
-    const dx = point.clientX - touch.x;
-    const dy = point.clientY - touch.y;
-
-    touch = null;
-
-    if (Math.abs(dx) > 65 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-        move(dx < 0 ? 1 : -1);
-    }
-}
-
-function keyboard(event) {
-    if (!props.active || !currentPhoto.value) return;
-
-    if (
-        event.target instanceof HTMLElement
-        && event.target.closest(
-            'input, textarea, select, [contenteditable="true"]'
-        )
-    ) {
-        return;
-    }
-
-    if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        move(-1);
-    }
-
-    if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        move(1);
-    }
-
-    /*
-     * Escape оставляем внешнему просмотрщику:
-     * не меняем существующее управление окном.
-     */
-}
 
 async function uploadMore() {
     if (
@@ -352,6 +551,8 @@ watch(
         loading,
         canManage,
         orderSaving,
+        photoActionBusy,
+        transferOpen,
         () => props.active,
     ],
     async () => {
@@ -366,6 +567,8 @@ watch(
             || !props.active
             || loading.value
             || orderSaving.value
+            || photoActionBusy.value
+            || transferOpen.value
         ) {
             return;
         }
@@ -402,12 +605,12 @@ watch(
 
 
 onMounted(() => {
-    window.addEventListener('keydown', keyboard);
+
 });
 
 onBeforeUnmount(() => {
     sortable?.destroy();
-    window.removeEventListener('keydown', keyboard);
+
 });
 </script>
 
@@ -627,5 +830,40 @@ onBeforeUnmount(() => {
     .photo-gallery button {
         min-height: 38px;
     }
+}
+
+.photo-transfer-panel {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid #cbd5e1;
+    background: #eff6ff;
+    color: #334155;
+    font-size: 12px;
+}
+
+.photo-transfer-panel label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 0;
+}
+
+.photo-transfer-panel select {
+    width: 100%;
+    max-width: 600px;
+    min-height: 38px;
+    padding: 7px 9px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: white;
+    color: #334155;
+}
+
+.photo-gallery .photo-delete-button {
+    border-color: #fecaca;
+    color: #b91c1c;
 }
 </style>
