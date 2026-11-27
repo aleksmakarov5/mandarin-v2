@@ -13,6 +13,13 @@ use App\Http\Controllers\Api\WorkController;
 use App\Http\Controllers\Api\TroubleshootingController;
 use App\Http\Controllers\Api\AttachmentController;
 use App\Http\Controllers\Api\LawyerController;
+use App\Http\Controllers\Api\DocumentController;
+use App\Http\Controllers\Api\DocumentFileController;
+
+Route::get(
+    'applications/{id}/documents',
+    [DocumentController::class, 'index']
+)->whereNumber('id');
 
 // Контроллеры модуля администрирования
 use App\Http\Controllers\Api\Admin\UserController;
@@ -23,6 +30,7 @@ use App\Http\Controllers\Api\Admin\CityController;
 use App\Http\Controllers\Api\Admin\LegalEntityController;
 use App\Http\Controllers\Api\Admin\OurCompanyController;
 use App\Http\Controllers\Api\Admin\FinanceStatusController;
+
 /*|--------------------------------------------------------------------------
 | Публичные маршруты
 |--------------------------------------------------------------------------
@@ -258,6 +266,21 @@ Route::middleware('auth:sanctum')->group(function () {
             'updateZpPercentages',
         ]
     )->whereNumber('id');
+
+    Route::get(
+        'applications/{id}/documents',
+        [DocumentController::class, 'index']
+    )->whereNumber('id');
+
+    Route::patch(
+        'applications/{id}/documents/{documentId}/type',
+        [
+            \App\Http\Controllers\Api\DocumentController::class,
+            'assignType',
+        ]
+    )
+        ->whereNumber('id')
+        ->whereNumber('documentId');
     // Эндпоинт опций справочника работ для сметы
 
 });

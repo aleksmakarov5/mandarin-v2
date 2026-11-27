@@ -367,4 +367,30 @@ class ApplicationPolicy
         );
     }
 
+    public function viewDocuments(
+        \App\Models\User $user,
+        \App\Models\Application $application
+    ): bool {
+        $branchId = (int) $application->our_company;
+
+        return $branchId > 0
+            && $user->hasBranchRole(
+                [2, 3, 5, 6, 7],
+                $branchId
+            );
+    }
+
+    public function manageDocuments(
+        \App\Models\User $user,
+        \App\Models\Application $application
+    ): bool {
+        $branchId = (int) $application->our_company;
+
+        return $branchId > 0
+            && $user->hasBranchRole(
+                [2, 5, 6, 7],
+                $branchId
+            );
+    }
+
 }
