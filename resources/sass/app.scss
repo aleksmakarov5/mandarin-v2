@@ -698,3 +698,13 @@ a {
 .modal-backdrop {
     z-index: 1050 !important;
 }
+
+:root {
+    --document-viewer-bottom-offset: 0px;
+}
+
+@media (max-width: 767.98px) {
+    :root {
+        --document-viewer-bottom-offset: 56px;
+    }
+}

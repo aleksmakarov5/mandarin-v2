@@ -18,10 +18,11 @@
                     Обновить
                 </button>
 
-                <button v-if="permissions.manage" type="button" class="doc-button primary" disabled
-                    title="Общая загрузка будет подключена следующим этапом">
+                <button v-if="permissions.manage" type="button" class="doc-button primary"
+                    :disabled="loading || !applicationId" title="Загрузить файлы в нераспределённые документы"
+                    @click="openUnassignedUpload">
                     <i class="bi bi-upload me-1"></i>
-                    Загрузить файлы
+                    Загрузить
                 </button>
             </div>
         </header>
@@ -60,8 +61,8 @@
                             <button v-if="
                                 section.code !== 'unassigned'
                                 && permissions.manage
-                            " type="button" class="doc-button primary" disabled
-                                title="Загрузчик с выбором типа подключим следующим этапом">
+                            " type="button" class="doc-button primary" :disabled="loading || !applicationId"
+                                title="Выбрать тип документа и загрузить файлы" @click="openSectionUpload(section)">
                                 <i class="bi bi-upload me-1"></i>
                                 Загрузить
                             </button>
@@ -78,65 +79,11 @@
                     </header>
 
                     <div class="section-body">
-                        <article v-for="item in itemsFor(section.code)" :key="item.id" class="document-row">
-                            <div class="document-symbol">
-                                <i :class="item.type?.is_photo
-                                    ? 'bi bi-images'
-                                    : 'bi bi-file-earmark-text'"></i>
-                            </div>
-
-                            <div class="document-info">
-                                <strong>{{ item.title }}</strong>
-
-                                <div class="document-meta">
-                                    <span>
-                                        {{ item.type?.name || 'Без типа' }}
-                                    </span>
-
-                                    <span>
-                                        {{ formatDate(
-                                            item.document_date
-                                            || item.created_at
-                                        ) }}
-                                    </span>
-
-                                    <span v-if="item.type?.is_photo">
-                                        {{ item.photos_count }} фото
-                                    </span>
-
-                                    <span v-else>
-                                        Файлов: {{ item.files_count }}
-                                    </span>
-
-                                    <span v-if="item.processing_count" class="processing">
-                                        Обрабатывается:
-                                        {{ item.processing_count }}
-                                    </span>
-
-                                    <span v-if="item.failed_count" class="failed">
-                                        С ошибкой:
-                                        {{ item.failed_count }}
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div class="row-actions">
-                                <button v-if="
-                                    !item.type
-                                    && permissions.manage
-                                " type="button" class="doc-button" @click="assigning = item">
-                                    Назначить тип
-                                </button>
-
-                                <button type="button" class="doc-button" disabled :title="item.type?.is_photo
-                                    ? 'Галерея подключается следующим этапом'
-                                    : 'Просмотр файлов подключается следующим этапом'">
-                                    {{ item.type?.is_photo
-                                        ? 'Галерея'
-                                        : 'Открыть' }}
-                                </button>
-                            </div>
-                        </article>
+                        <div v-if="itemsFor(section.code).length" class="document-tiles-grid">
+                            <DocumentTile v-for="item in itemsFor(section.code)" :key="item.id" :item="item"
+                                :manage="permissions.manage === true" @assign-type="assigning = $event"
+                                @open="openDocumentViewer" />
+                        </div>
 
                         <div v-if="
                             !loading
@@ -185,18 +132,39 @@
         <DocumentAssignTypeModal v-if="assigning && applicationId" :key="`${applicationId}-${assigning.id}`"
             :application-id="applicationId" :document="assigning" :types="types" @close="assigning = null"
             @saved="onAssigned" />
+        <DocumentFilesModal v-if="openedDocument && applicationId"
+            :key="`document-files-${applicationId}-${openedDocument.id}`" :application-id="applicationId"
+            :document="openedDocument" @close="openedDocument = null" />
     </div>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import {
+    computed,
+    reactive,
+    ref,
+    watch,
+} from 'vue';
 
 import { documentCategories } from './documentCategories';
 import { useDocuments } from './composables/useDocuments';
+import DocumentTile from './components/DocumentTile.vue';
+
 
 import DocumentAssignTypeModal
     from './components/DocumentAssignTypeModal.vue';
 
+import DocumentFilesModal
+    from './components/DocumentFilesModal.vue';
+import { useDocumentViewer }
+    from './composables/useDocumentViewer';
+import { useDocumentUploadWindow }
+    from './composables/useDocumentUploadWindow';
+
+const {
+    uploadModalRef,
+    lastUploadedBatch,
+} = useDocumentUploadWindow();
 const props = defineProps({
     applicationId: {
         type: [Number, String],
@@ -204,6 +172,7 @@ const props = defineProps({
     },
 });
 
+const { open: openDocumentViewer } = useDocumentViewer();
 const {
     applicationId,
     itemsByCategory,
@@ -229,9 +198,80 @@ const sections = [
     ...documentCategories,
 ];
 
+const selectedTypeIds = reactive(
+    Object.fromEntries(
+        documentCategories.map(category => [
+            category.code,
+            '',
+        ])
+    )
+);
+
 const hasLoadedData = computed(() => {
     return Object.keys(itemsByCategory.value).length > 0;
 });
+
+/*
+ * Сервер передаёт allows_upload как boolean.
+ * Показываем только типы, разрешённые для ручной загрузки.
+ */
+function uploadTypesFor(categoryCode) {
+    return types.value.filter(type => {
+        return type.category === categoryCode
+            && type.allows_upload === true;
+    });
+}
+
+function selectedUploadType(categoryCode) {
+    const selectedId = selectedTypeIds[categoryCode];
+
+    return uploadTypesFor(categoryCode).find(type => {
+        return String(type.id) === String(selectedId);
+    }) || null;
+}
+
+function openUnassignedUpload() {
+    if (
+        permissions.value.manage !== true
+        || !applicationId.value
+        || loading.value
+    ) {
+        return;
+    }
+
+    uploadModalRef.value?.open({
+        applicationId: applicationId.value,
+        placement: 'unassigned',
+    });
+}
+
+function openSectionUpload(section) {
+    if (
+        permissions.value.manage !== true
+        || !applicationId.value
+        || loading.value
+    ) {
+        return;
+    }
+
+    uploadModalRef.value?.open({
+        applicationId: applicationId.value,
+        placement: 'typed',
+
+        categoryLabel: section.title,
+
+        availableTypes: types.value.filter(type => {
+            const allowsUpload = [
+                true,
+                1,
+                '1',
+            ].includes(type.allows_upload);
+
+            return type.category === section.code
+                && allowsUpload;
+        }),
+    });
+}
 
 function itemsFor(code) {
     return itemsByCategory.value[code] || [];
@@ -244,6 +284,18 @@ function metaFor(code) {
         total: 0,
     };
 }
+
+watch(lastUploadedBatch, batch => {
+    if (
+        !batch
+        || Number(batch.applicationId)
+        !== Number(applicationId.value)
+    ) {
+        return;
+    }
+
+    loadAll();
+});
 
 function documentCountLabel(code) {
     const count = Number(counts.value[code] || 0);
@@ -284,17 +336,42 @@ async function onAssigned() {
     await loadAll();
 }
 
+function resetTypeSelection() {
+    for (const code of Object.keys(selectedTypeIds)) {
+        selectedTypeIds[code] = '';
+    }
+}
+
+/*
+ * Если список типов обновился, не сохраняем выбор
+ * удалённого или больше не разрешённого типа.
+ */
+watch(types, () => {
+    for (const code of Object.keys(selectedTypeIds)) {
+        if (
+            selectedTypeIds[code]
+            && !selectedUploadType(code)
+        ) {
+            selectedTypeIds[code] = '';
+        }
+    }
+});
+
 watch(
     () => props.applicationId,
     () => {
         assigning.value = null;
+        resetTypeSelection();
     }
 );
 
 watch(
     () => permissions.value.manage,
-    value => {
-        if (!value) assigning.value = null;
+    allowed => {
+        if (allowed !== true) {
+            assigning.value = null;
+            resetTypeSelection();
+        }
     }
 );
 
@@ -612,6 +689,70 @@ defineExpose({
 
     .row-actions .doc-button {
         min-height: 32px;
+    }
+}
+
+.upload-type-select {
+    flex: 1 1 150px;
+    width: 180px;
+    min-width: 0;
+    max-width: 240px;
+    min-height: 29px;
+    padding: 5px 7px;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #334155;
+    font-family: inherit;
+    font-size: 10px;
+}
+
+.upload-type-select:disabled {
+    background: #f8fafc;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+.upload-type-select:focus-visible,
+.doc-button:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 2px;
+}
+
+.section-actions {
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+}
+
+@media (max-width: 650px) {
+    .upload-type-select {
+        flex: 1 1 100%;
+        width: 100%;
+        max-width: none;
+        min-height: 38px;
+        font-size: 12px;
+    }
+}
+
+/* Компактная сетка внутри категорий */
+.document-tiles-grid,
+.document-section-unassigned .document-tiles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill,
+            minmax(min(100%, 260px), 1fr));
+    align-items: start;
+    gap: 5px;
+    padding: 6px;
+}
+
+@media (max-width: 650px) {
+
+    .document-tiles-grid,
+    .document-section-unassigned .document-tiles-grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 5px;
+        padding: 5px;
     }
 }
 </style>

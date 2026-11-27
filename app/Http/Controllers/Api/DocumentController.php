@@ -150,9 +150,67 @@ class DocumentController extends Controller
          * Явный DTO: storage_path, source_message_id
          * и прочие внутренние поля наружу не выдаём.
          */
+
+        /*
+         * Не загружаем все 500 фото комплекта.
+         * Для обычных документов получаем только сведения
+         * о первом текущем исходном файле.
+         */
+        $documentIds = $paginator->getCollection()
+            ->pluck('id');
+
+        $primaryFileIds = \App\Models\DocumentFile::query()
+            ->whereIn('document_id', $documentIds)
+            ->where('is_current', true)
+            ->where('processing_status', 'ready')
+            ->whereIn('file_role', [
+                'original',
+                'generated_docx',
+                'generated_pdf',
+            ])
+            ->selectRaw('MIN(id) AS id')
+            ->groupBy('document_id');
+
+        $primaryFiles = \App\Models\DocumentFile::query()
+            ->whereIn('id', $primaryFileIds)
+            ->get([
+                'id',
+                'document_id',
+                'extension',
+                'mime_type',
+                'file_size',
+            ])
+            ->keyBy('document_id');
+
         $items = $paginator->getCollection()->map(
-            function (Document $document): array {
+            function (Document $document) use ($primaryFiles): array {
+                $primaryFile = $primaryFiles->get($document->id);
+
+                $extension = strtolower(
+                    (string) ($primaryFile?->extension ?? '')
+                );
+
+                $isArchive = in_array(
+                    $extension,
+                    ['zip', 'rar', '7z'],
+                    true
+                );
+
+                $presentation = $isArchive
+                    ? 'archive'
+                    : ($document->type?->is_photo ? 'gallery' : 'file');
+
                 return [
+                    'presentation' => $presentation,
+
+                    'primary_file' => $primaryFile
+                        ? [
+                            'id' => (int) $primaryFile->id,
+                            'extension' => $extension,
+                            'mime_type' => $primaryFile->mime_type,
+                            'file_size' => (int) $primaryFile->file_size,
+                        ]
+                        : null,
                     'id' => (int) $document->id,
                     'title' => $document->title
                         ?: $document->type?->name
@@ -183,6 +241,7 @@ class DocumentController extends Controller
         );
 
         return response()->json([
+
             'data' => $items,
             'types' => $types,
             'counts' => $counts,
@@ -198,6 +257,7 @@ class DocumentController extends Controller
                 'last_page' => $paginator->lastPage(),
                 'total' => $paginator->total(),
             ],
+
         ])->header('Cache-Control', 'private, no-store');
     }
 

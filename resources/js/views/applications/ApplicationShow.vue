@@ -41,6 +41,8 @@
             </RouterView>
         </main>
     </div>
+    <DocumentViewerHost />
+    <DocumentUploadHost :application-id="applicationId" />
 </template>
 
 <script setup>
@@ -59,6 +61,16 @@ import ApplicationCardHeader from '../../components/applications/card/Applicatio
 import ApplicationCardSummary from '../../components/applications/card/ApplicationCardSummary.vue';
 import ApplicationCardMenu from '../../components/applications/card/ApplicationCardMenu.vue';
 import ApplicationDoubleProgressBar from '../../components/applications/card/ApplicationDoubleProgressBar.vue';
+import DocumentViewerHost
+    from '@/modules/applications/documents/components/DocumentViewerHost.vue';
+
+import { provideDocumentViewer }
+    from '@/modules/applications/documents/composables/useDocumentViewer';
+import DocumentUploadHost
+    from '@/modules/applications/documents/components/DocumentUploadHost.vue';
+
+import { provideDocumentUploadWindow }
+    from '@/modules/applications/documents/composables/useDocumentUploadWindow';
 
 const route = useRoute();
 const router = useRouter();
@@ -76,7 +88,8 @@ const options = reactive({
 });
 
 const applicationId = computed(() => Number(route.params.id));
-
+provideDocumentViewer(applicationId);
+provideDocumentUploadWindow();
 const hasValidApplicationId = computed(() => (
     Number.isInteger(applicationId.value) && applicationId.value > 0
 ));

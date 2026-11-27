@@ -36,7 +36,36 @@ use App\Http\Controllers\Api\Admin\FinanceStatusController;
 |--------------------------------------------------------------------------
 */
 Route::post('/auth/login', [AuthController::class, 'login']);
-
+/*
+ * Доступ только по краткоживущей подписанной ссылке.
+ * Права пользователя дополнительно проверяет контроллер.
+ */
+Route::get(
+    'applications/{applicationId}/documents/{documentId}'
+    . '/files/{fileId}/download',
+    [
+        \App\Http\Controllers\Api\DocumentFileController::class,
+        'download',
+    ]
+)
+    ->middleware(['signed:relative', 'throttle:30,1'])
+    ->whereNumber('applicationId')
+    ->whereNumber('documentId')
+    ->whereNumber('fileId')
+    ->name('api.documents.files.download');
+Route::get(
+    'applications/{applicationId}/documents/{documentId}'
+    . '/files/{fileId}/preview',
+    [
+        \App\Http\Controllers\Api\DocumentPreviewController::class,
+        'show',
+    ]
+)
+    ->middleware(['signed:relative', 'throttle:120,1'])
+    ->whereNumber('applicationId')
+    ->whereNumber('documentId')
+    ->whereNumber('fileId')
+    ->name('api.documents.files.preview');
 /*
 |--------------------------------------------------------------------------
 | Защищенные маршруты (Sanctum Bearer Token)
@@ -281,6 +310,96 @@ Route::middleware('auth:sanctum')->group(function () {
     )
         ->whereNumber('id')
         ->whereNumber('documentId');
+
+    Route::post(
+        'applications/{id}/document-upload-batches',
+        [
+            \App\Http\Controllers\Api\DocumentUploadBatchController::class,
+            'store',
+        ]
+    )->whereNumber('id');
+
+    Route::get(
+        'applications/{id}/document-upload-batches/{batchId}',
+        [
+            \App\Http\Controllers\Api\DocumentUploadBatchController::class,
+            'show',
+        ]
+    )
+        ->whereNumber('id')
+        ->whereNumber('batchId');
+
+    Route::post(
+        'applications/{id}/document-upload-batches/{batchId}'
+        . '/items/{itemId}/chunks/{chunkIndex}',
+        [
+            \App\Http\Controllers\Api\DocumentUploadChunkController::class,
+            'store',
+        ]
+    )
+        ->whereNumber('id')
+        ->whereNumber('batchId')
+        ->whereNumber('itemId')
+        ->whereNumber('chunkIndex');
+
+    Route::get(
+        'applications/{id}/document-upload-batches/{batchId}'
+        . '/items/{itemId}/upload-state',
+        [
+            \App\Http\Controllers\Api\DocumentUploadChunkController::class,
+            'show',
+        ]
+    )
+        ->whereNumber('id')
+        ->whereNumber('batchId')
+        ->whereNumber('itemId');
+
+    Route::post(
+        'applications/{id}/document-upload-batches/{batchId}'
+        . '/items/{itemId}/complete',
+        [
+            \App\Http\Controllers\Api\DocumentUploadCompletionController::class,
+            'store',
+        ]
+    )
+        ->whereNumber('id')
+        ->whereNumber('batchId')
+        ->whereNumber('itemId');
+
+    Route::get(
+        'applications/{applicationId}/documents/{documentId}/files',
+        [
+            \App\Http\Controllers\Api\DocumentFileController::class,
+            'index',
+        ]
+    )
+        ->whereNumber('applicationId')
+        ->whereNumber('documentId')
+        ->name('api.documents.files.index');
+
+    Route::post(
+        'applications/{applicationId}/documents/{documentId}'
+        . '/files/{fileId}/download-link',
+        [
+            \App\Http\Controllers\Api\DocumentFileController::class,
+            'downloadLink',
+        ]
+    )
+        ->whereNumber('applicationId')
+        ->whereNumber('documentId')
+        ->whereNumber('fileId')
+        ->name('api.documents.files.download-link');
+    Route::post(
+        'applications/{applicationId}/documents/{documentId}'
+        . '/files/{fileId}/preview-link',
+        [
+            \App\Http\Controllers\Api\DocumentPreviewController::class,
+            'link',
+        ]
+    )
+        ->whereNumber('applicationId')
+        ->whereNumber('documentId')
+        ->whereNumber('fileId');
     // Эндпоинт опций справочника работ для сметы
 
 });
