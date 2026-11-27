@@ -66,6 +66,39 @@ Route::get(
     ->whereNumber('documentId')
     ->whereNumber('fileId')
     ->name('api.documents.files.preview');
+Route::get(
+    'applications/{applicationId}/documents/{documentId}'
+    . '/gallery/photos/{fileId}/presentation/{kind}',
+    [
+        \App\Http\Controllers\Api\PhotoPresentationController::class,
+        'show',
+    ]
+)
+    ->middleware('signed:relative')
+    ->whereNumber('applicationId')
+    ->whereNumber('documentId')
+    ->whereNumber('fileId')
+    ->where('kind', 'thumbnail|screen')
+    ->name('api.documents.photos.presentation');
+
+/*
+ * Готовые изображения галереи.
+ * Доступ по подписанной ссылке с повторной проверкой прав.
+ */
+Route::get(
+    'applications/{applicationId}/documents/{documentId}'
+    . '/gallery/photos/{fileId}/media/{kind}',
+    [
+        \App\Http\Controllers\Api\PhotoGalleryMediaController::class,
+        'show',
+    ]
+)
+    ->middleware('signed:relative')
+    ->whereNumber('applicationId')
+    ->whereNumber('documentId')
+    ->whereNumber('fileId')
+    ->where('kind', 'thumbnail|main')
+    ->name('api.documents.gallery.media');
 /*
 |--------------------------------------------------------------------------
 | Защищенные маршруты (Sanctum Bearer Token)
@@ -400,6 +433,27 @@ Route::middleware('auth:sanctum')->group(function () {
         ->whereNumber('applicationId')
         ->whereNumber('documentId')
         ->whereNumber('fileId');
+
+    Route::get(
+        'applications/{applicationId}/documents/{documentId}/gallery',
+        [
+            \App\Http\Controllers\Api\PhotoGalleryController::class,
+            'index',
+        ]
+    )
+        ->whereNumber('applicationId')
+        ->whereNumber('documentId');
+
+    Route::put(
+        'applications/{applicationId}/documents/{documentId}/gallery/order',
+        [
+            \App\Http\Controllers\Api\PhotoGalleryController::class,
+            'reorder',
+        ]
+    )
+        ->whereNumber('applicationId')
+        ->whereNumber('documentId');
+
     // Эндпоинт опций справочника работ для сметы
 
 });

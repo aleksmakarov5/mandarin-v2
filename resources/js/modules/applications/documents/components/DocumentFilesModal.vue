@@ -16,7 +16,7 @@
                     </div>
 
                     <div class="preview-actions">
-                        <button type="button" :disabled="loading || downloading || !currentFile"
+                        <button type="button" v-if="!isPhotoGallery" :disabled="loading || downloading || !currentFile"
                             aria-label="Скачать файл" title="Скачать" @click="download">
                             <i class="bi bi-download" aria-hidden="true"></i>
                         </button>
@@ -31,7 +31,8 @@
                 </header>
 
                 <!-- Для нескольких файлов — переключатель, не список плиток -->
-                <nav v-if="meta.total > 1" class="preview-navigation" aria-label="Переключение файлов документа">
+                <nav v-if="!isPhotoGallery && meta.total > 1" class="preview-navigation"
+                    aria-label="Переключение файлов документа">
                     <button type="button" :disabled="loading || position <= 1" @click="move(-1)">
                         ←
                     </button>
@@ -48,7 +49,11 @@
                 </div>
 
                 <main class="preview-body" :aria-busy="loading">
-                    <div v-if="loading" class="preview-message" role="status">
+
+                    <PhotoGallery v-if="isPhotoGallery" :application-id="applicationId" :document="document"
+                        :active="!minimized" />
+
+                    <div v-else-if="loading" class="preview-message" role="status">
                         Подготовка документа…
                     </div>
 
@@ -88,6 +93,8 @@ import {
 } from 'vue';
 
 import axios from 'axios';
+import PhotoGallery from '../gallery/PhotoGallery.vue';
+
 
 const props = defineProps({
     applicationId: {
@@ -102,6 +109,12 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+});
+
+const isPhotoGallery = computed(() => {
+    return props.document.is_photo === true
+        || props.document.type?.is_photo === true
+        || props.document.document_type?.is_photo === true;
 });
 
 const emit = defineEmits([
@@ -400,7 +413,9 @@ onMounted(async () => {
     if (!props.minimized) {
         dialog.value?.focus({ preventScroll: true });
     }
-    loadPage();
+    if (!isPhotoGallery.value) {
+        loadPage();
+    }
 });
 
 onBeforeUnmount(() => {

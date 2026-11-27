@@ -32,6 +32,9 @@ class DocumentFile extends Model
         'sort_order',
         'uploaded_by_user_id',
         'legacy_attachment_id',
+        'parent_file_id',
+        'width',
+        'height',
     ];
 
     protected $casts = [

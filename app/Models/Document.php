@@ -33,6 +33,8 @@ class Document extends Model
         'is_archived' => 'boolean',
         'archived_at' => 'datetime',
         'document_date' => 'date:Y-m-d',
+        'content_revision' => 'integer',
+        'archive_revision' => 'integer',
     ];
 
     public function type(): BelongsTo

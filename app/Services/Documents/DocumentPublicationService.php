@@ -76,6 +76,13 @@ class DocumentPublicationService
         }
 
         $targetPath = null;
+        $thumbnailPath = null;
+
+        $thumbnail = null;
+
+        $imageWidth = null;
+        $imageHeight = null;
+
         $registered = false;
 
         try {
@@ -102,7 +109,11 @@ class DocumentPublicationService
                     'Размер исходника не совпадает с зарегистрированным.'
                 );
             }
-
+            if (!fflush($working)) {
+                throw new RuntimeException(
+                    'Не удалось сбросить буфер рабочего файла публикации.'
+                );
+            }
             $metadata = stream_get_meta_data($working);
             $localPath = $metadata['uri'];
 
@@ -135,7 +146,40 @@ class DocumentPublicationService
                 $mime,
                 $type
             );
+            $storedSize = (int) $item->file_size;
 
+            $rasterMimes = [
+                'image/jpeg',
+                'image/png',
+                'image/webp',
+                'image/heic',
+                'image/heif',
+                'image/avif',
+                'image/tiff',
+            ];
+
+            if (in_array($mime, $rasterMimes, true)) {
+                $normalized = app(PhotoNormalizationService::class)
+                    ->normalize($localPath, $mime);
+
+                /*
+                 * Старый рабочий файл больше не нужен.
+                 * Теперь $working содержит основной JPEG.
+                 */
+                fclose($working);
+
+                $working = $normalized['main']['stream'];
+                $thumbnail = $normalized['thumbnail'];
+
+                $storedSize = $normalized['main']['size'];
+                $sha256 = $normalized['main']['sha256'];
+
+                $imageWidth = $normalized['main']['width'];
+                $imageHeight = $normalized['main']['height'];
+
+                $extension = 'jpg';
+                $mime = 'image/jpeg';
+            }
             /*
              * Имя пользователя не используется в физическом пути.
              * Оригинальное имя хранится только в БД.
@@ -162,14 +206,44 @@ class DocumentPublicationService
             if (
                 !$stored
                 || Storage::disk($targetDisk)->size($targetPath)
-                !== (int) $item->file_size
+                !== $storedSize
             ) {
                 throw new RuntimeException(
                     'Не удалось сохранить постоянный файл.'
                 );
             }
 
-            $registered = DB::transaction(function () use ($application, $user, $batch, $item, $targetDisk, $targetPath, $mime, $sha256, $extension): bool {
+            if ($thumbnail !== null) {
+                $thumbnailPath = sprintf(
+                    'applications/%d/documents/thumbnails/%s.jpg',
+                    $application->id,
+                    (string) Str::uuid()
+                );
+
+                if (!rewind($thumbnail['stream'])) {
+                    throw new RuntimeException(
+                        'Не удалось подготовить миниатюру к сохранению.'
+                    );
+                }
+
+                $thumbnailStored = Storage::disk($targetDisk)->put(
+                    $thumbnailPath,
+                    $thumbnail['stream'],
+                    ['visibility' => 'private']
+                );
+
+                if (
+                    !$thumbnailStored
+                    || Storage::disk($targetDisk)->size($thumbnailPath)
+                    !== $thumbnail['size']
+                ) {
+                    throw new RuntimeException(
+                        'Не удалось сохранить миниатюру фотографии.'
+                    );
+                }
+            }
+
+            $registered = DB::transaction(function () use ($application, $user, $batch, $item, $targetDisk, $targetPath, $mime, $sha256, $extension, $storedSize, $imageWidth, $imageHeight, $thumbnail, $thumbnailPath): bool {
                 /*
                  * Один порядок блокировок во всех обработчиках:
                  * дело → пакет → элемент.
@@ -237,8 +311,18 @@ class DocumentPublicationService
                     'document_id' => $document->id,
                     'file_role' => 'original',
 
-                    'original_name' =>
-                        $lockedItem->original_name,
+                    /*
+                     * Имя должно соответствовать опубликованному формату.
+                     * Имя принятого исходника остаётся в upload_items.
+                     */
+                    'original_name' => $mime === 'image/jpeg'
+                        ? (
+                            pathinfo(
+                                $lockedItem->original_name,
+                                PATHINFO_FILENAME
+                            ) . '.jpg'
+                        )
+                        : $lockedItem->original_name,
 
                     'stored_name' => basename($targetPath),
                     'storage_disk' => $targetDisk,
@@ -246,13 +330,17 @@ class DocumentPublicationService
 
                     'extension' => $extension,
                     'mime_type' => $mime,
-                    'file_size' => $lockedItem->file_size,
-                    'sha256' => $sha256,
 
+                    // Размер именно сохранённого файла после преобразования.
+                    'file_size' => $storedSize,
+
+                    // SHA-256 именно сохранённого файла.
+                    'sha256' => $sha256,
+                    'width' => $imageWidth,
+                    'height' => $imageHeight,
                     /*
-                     * Готов исходник.
-                     * Это не означает наличие превью,
-                     * распаковки или сжатой фотографии.
+                     * Для фотографии готов нормализованный JPEG.
+                     * Миниатюры галереи создаются отдельно.
                      */
                     'processing_status' => 'ready',
                     'is_current' => true,
@@ -262,6 +350,36 @@ class DocumentPublicationService
                 ]);
 
                 $lockedItem->document_file_id = $file->id;
+                if ($thumbnail !== null && $thumbnailPath !== null) {
+                    DocumentFile::create([
+                        'document_id' => $document->id,
+                        'parent_file_id' => $file->id,
+
+                        'file_role' => 'thumbnail',
+
+                        'original_name' =>
+                            'thumbnail-' . $file->id . '.jpg',
+
+                        'stored_name' => basename($thumbnailPath),
+                        'storage_disk' => $targetDisk,
+                        'storage_path' => $thumbnailPath,
+
+                        'extension' => 'jpg',
+                        'mime_type' => 'image/jpeg',
+
+                        'file_size' => $thumbnail['size'],
+                        'sha256' => $thumbnail['sha256'],
+
+                        'width' => $thumbnail['width'],
+                        'height' => $thumbnail['height'],
+
+                        'processing_status' => 'ready',
+                        'is_current' => true,
+                        'is_inline' => false,
+
+                        'uploaded_by_user_id' => $user->id,
+                    ]);
+                }
                 $lockedItem->status = 'completed';
                 $lockedItem->error = null;
                 $lockedItem->save();
@@ -291,19 +409,52 @@ class DocumentPublicationService
                 return true;
             });
         } finally {
-            fclose($working);
+            if (is_resource($working)) {
+                fclose($working);
+            }
 
-            if ($targetPath !== null && !$registered) {
-                try {
-                    Storage::disk($targetDisk)->delete($targetPath);
-                } catch (Throwable $error) {
-                    Log::warning(
-                        'Не удалось удалить непривязанный файл.',
-                        [
-                            'item_id' => $itemId,
-                            'error' => $error->getMessage(),
-                        ]
-                    );
+            if (
+                is_array($thumbnail)
+                && is_resource($thumbnail['stream'] ?? null)
+            ) {
+                fclose($thumbnail['stream']);
+            }
+
+            /*
+             * Если транзакция не зарегистрировала файлы,
+             * удаляем обе непривязанные физические копии.
+             *
+             * Принятый исходник и части загрузки здесь не удаляем.
+             */
+            if (!$registered) {
+                foreach ([$targetPath, $thumbnailPath] as $path) {
+                    if ($path === null) {
+                        continue;
+                    }
+
+                    try {
+                        $deleted = Storage::disk($targetDisk)
+                            ->delete($path);
+
+                        if (!$deleted) {
+                            Log::warning(
+                                'Не удалось удалить непривязанный файл.',
+                                [
+                                    'item_id' => $itemId,
+                                    'path' => $path,
+                                ]
+                            );
+                        }
+                    } catch (Throwable $error) {
+                        Log::warning(
+                            'Ошибка удаления непривязанного файла.',
+                            [
+                                'item_id' => $itemId,
+                                'path' => $path,
+                                'error' => $error->getMessage(),
+                            ]
+                        );
+                    }
                 }
             }
         }

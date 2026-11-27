@@ -93,8 +93,12 @@ return [
         'preserve_originals' => true,
 
         'optimized_max_side' => 2560,
-        'preview_max_side' => 640,
         'jpeg_quality' => 82,
+
+        'preview_max_side' => 380,
+        'preview_jpeg_quality' => 55,
+
+        'max_pixels' => 80000000,
         /*
          * В комплект фото можно отправить фотографии
          * либо архив с фотографиями.

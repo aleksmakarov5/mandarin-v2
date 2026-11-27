@@ -28,7 +28,7 @@
                 <div class="upload-body">
                     <template v-if="!prepared">
                         <template v-if="context.placement === 'typed'">
-                            <label>
+                            <label v-if="!context.documentId">
                                 Тип документа *
 
                                 <select v-model="context.documentTypeId" :disabled="!context.availableTypes.length">
@@ -47,7 +47,8 @@
                                 </select>
                             </label>
 
-                            <div v-if="!context.availableTypes.length" class="upload-error" role="alert">
+                            <div v-if="!context.documentId && !context.availableTypes.length" class="upload-error"
+                                role="alert">
                                 Для этой категории нет типов, разрешённых для загрузки.
                                 Проверьте справочник типов документов.
                             </div>
@@ -72,9 +73,14 @@
                                 Можно выбрать несколько файлов.
                             </span>
 
-                            <input ref="fileInput" type="file" :multiple="isPhotoUpload" :accept="fileAccept" :disabled="context.placement === 'typed'
-                                && !selectedType
-                                " aria-label="Выберите файлы для загрузки" @change="selectFiles" />
+                            <input ref="fileInput" type="file" :multiple="isPhotoUpload" :accept="fileAccept"
+                                :disabled="!hasValidUploadType || filesProcessing"
+                                aria-label="Выберите файлы для загрузки" @change="selectFiles" />
+                        </div>
+                        <div v-if="filesProcessing" class="selection-info" role="status">
+                            Подготовка фотографий:
+                            {{ filesProcessedCount }} / {{ filesProcessingTotal }}.
+                            Уменьшаем размер перед отправкой…
                         </div>
 
                         <div v-if="selectedFiles.length" class="selection-info">
@@ -166,14 +172,12 @@
                         Остановить
                     </button>
 
-                    <button v-else-if="!allAccepted" type="button" class="primary-button" :disabled="!prepared
-                        && (
-                            !selectedFiles.length
-                            || (
-                                context.placement === 'typed'
-                                && !selectedType
-                            )
-                        )
+                    <button v-else-if="!allAccepted" type="button" class="primary-button" :disabled="filesProcessing
+                        || (!prepared
+                            && (
+                                !selectedFiles.length
+                                || !hasValidUploadType
+                            ))
                         " @click="startUpload">
                         {{
                             prepared
@@ -244,7 +248,8 @@ import {
 } from 'vue';
 
 import { useDocumentUpload } from '../composables/useDocumentUpload';
-
+import { optimizeUploadPhoto }
+    from '../services/optimizeUploadPhoto';
 const emit = defineEmits(['sources-uploaded']);
 
 const opened = ref(false);
@@ -256,6 +261,30 @@ const selectedFiles = ref([]);
 const title = ref('');
 const documentDate = ref('');
 const localError = ref('');
+const filesProcessing = ref(false);
+const filesProcessedCount = ref(0);
+const filesProcessingTotal = ref(0);
+
+let fileSelectionRevision = 0;
+const hasValidUploadType = computed(() => {
+    if (context.placement === 'unassigned') {
+        return true;
+    }
+
+    /*
+     * Добавление в существующий комплект.
+     * Сервер обязан проверить принадлежность комплекта делу
+     * и соответствие переданного типа.
+     */
+    if (context.documentId) {
+        const id = Number(context.documentTypeId);
+
+        return Number.isSafeInteger(id) && id > 0;
+    }
+
+    // Для нового документа тип выбирается из списка.
+    return Boolean(selectedType.value);
+});
 
 const context = reactive({
     applicationId: null,
@@ -339,10 +368,13 @@ const archiveExtensions = ['zip', 'rar', '7z'];
 const fileAccept = computed(() => {
     if (!isPhotoUpload.value) return '';
 
-    return [
-        ...photoExtensions,
-        ...archiveExtensions,
-    ].map(extension => `.${extension}`).join(',');
+    const extensions = context.documentId
+        ? photoExtensions
+        : [...photoExtensions, ...archiveExtensions];
+
+    return extensions
+        .map(extension => `.${extension}`)
+        .join(',');
 });
 
 const contextLabel = computed(() => {
@@ -373,6 +405,11 @@ const placementNote = computed(() => {
     return 'Один файл — один документ. Название можно изменить.';
 });
 function clearSelection() {
+    fileSelectionRevision += 1;
+
+    filesProcessing.value = false;
+    filesProcessedCount.value = 0;
+    filesProcessingTotal.value = 0;
     reset();
 
     selectedFiles.value = [];
@@ -408,17 +445,11 @@ async function changeFiles() {
 
     await nextTick();
 
-    if (
-        context.placement === 'typed'
-        && !selectedType.value
-    ) {
-        dialog.value?.querySelector('select')?.focus();
-    } else {
-        fileInput.value?.focus();
-    }
+    focusUploadField();
 }
 
-function selectFiles(event) {
+async function selectFiles(event) {
+    const selectionRevision = ++fileSelectionRevision;
     const files = Array.from(event.target.files || []);
 
     selectedFiles.value = [];
@@ -442,20 +473,23 @@ function selectFiles(event) {
                 ?.toLowerCase() || '';
         };
 
-        const allowed = [
-            ...photoExtensions,
-            ...archiveExtensions,
-        ];
-
+        const allowed = context.documentId
+            ? photoExtensions
+            : [...photoExtensions, ...archiveExtensions];
         const invalid = files.filter(file => {
             return !allowed.includes(extensionOf(file));
         });
 
         if (invalid.length) {
             reject(
-                'Выберите изображения или один архив. '
+                (
+                    context.documentId
+                        ? 'В существующий комплект можно добавить только изображения. '
+                        : 'Выберите изображения или один архив. '
+                )
                 + `Не подходит: ${invalid[0].name}`
             );
+
             return;
         }
 
@@ -472,7 +506,38 @@ function selectFiles(event) {
         }
     }
 
-    selectedFiles.value = files;
+    filesProcessing.value = true;
+    filesProcessedCount.value = 0;
+    filesProcessingTotal.value = files.length;
+
+    const optimizedFiles = [];
+
+    try {
+        for (const file of files) {
+            if (selectionRevision !== fileSelectionRevision) return;
+
+            const optimized = await optimizeUploadPhoto(file);
+
+            if (selectionRevision !== fileSelectionRevision) return;
+
+            optimizedFiles.push(optimized);
+            filesProcessedCount.value += 1;
+
+            /*
+             * Даём браузеру обновить интерфейс
+             * между обработкой фотографий.
+             */
+            await new Promise(resolve => {
+                window.setTimeout(resolve, 0);
+            });
+        }
+
+        selectedFiles.value = optimizedFiles;
+    } finally {
+        if (selectionRevision === fileSelectionRevision) {
+            filesProcessing.value = false;
+        }
+    }
 }
 
 async function open(parameters) {
@@ -542,33 +607,35 @@ async function open(parameters) {
         title.value = suggestedTitle.value;
     }
 
-    if (context.placement === 'typed') {
-        dialog.value?.querySelector('select')?.focus();
-    } else {
-        fileInput.value?.focus();
-    }
+    focusUploadField();
 }
 
 async function startUpload() {
-    if (running.value) return;
+    if (running.value || filesProcessing.value) return;
 
     localError.value = '';
 
     try {
         if (!prepared.value) {
-            if (
-                context.placement === 'typed'
-                && !selectedType.value
-            ) {
-                localError.value = 'Выберите тип документа.';
+            if (!hasValidUploadType.value) {
+                localError.value = context.documentId
+                    ? 'Не определён тип выбранного комплекта.'
+                    : 'Выберите тип документа.';
+
+                return;
+            }
+
+            if (!selectedFiles.value.length) {
+                localError.value = 'Выберите файлы для загрузки.';
                 return;
             }
 
             prepare(selectedFiles.value, {
                 ...context,
 
-                documentTypeId: selectedType.value?.id
-                    ?? context.documentTypeId,
+                documentTypeId: context.documentId
+                    ? Number(context.documentTypeId)
+                    : selectedType.value?.id,
 
                 title: title.value,
                 documentDate: documentDate.value,
@@ -586,11 +653,14 @@ async function startUpload() {
 
             emit('sources-uploaded', {
                 batchId: batch.value.id,
-                applicationId: batch.value.application_id,
+
+                applicationId: batch.value.application_id
+                    ?? context.applicationId,
             });
         }
     } catch (uploadError) {
-        localError.value = uploadError.message;
+        localError.value = uploadError.message
+            || 'Не удалось начать загрузку.';
     }
 }
 
@@ -659,9 +729,9 @@ function statusLabel(status) {
 function trapFocus(event) {
     const elements = Array.from(
         dialog.value?.querySelectorAll(
-            'button: not(: disabled), input: not(: disabled), select: not(: disabled)'
+            'button:not(:disabled), input:not(:disabled), select:not(:disabled)'
         ) || []
-    );
+    ).filter(element => element.getClientRects().length > 0);
 
     if (!elements.length) {
         event.preventDefault();
@@ -673,7 +743,10 @@ function trapFocus(event) {
     const last = elements[elements.length - 1];
     const active = document.activeElement;
 
-    if (active === dialog.value) {
+    if (
+        active === dialog.value
+        || !dialog.value?.contains(active)
+    ) {
         event.preventDefault();
         (event.shiftKey ? last : first).focus();
     } else if (event.shiftKey && active === first) {
@@ -691,14 +764,33 @@ onBeforeUnmount(() => {
         && previousFocus instanceof HTMLElement
         && previousFocus.isConnected
     ) {
+        fileSelectionRevision += 1;
         previousFocus.focus();
     }
 });
+
+function focusUploadField() {
+    if (
+        context.placement === 'typed'
+        && !context.documentId
+        && !selectedType.value
+    ) {
+        dialog.value?.querySelector('select')?.focus();
+    } else {
+        fileInput.value?.focus();
+    }
+}
 
 watch(
     () => context.documentTypeId,
     () => {
         if (prepared.value) return;
+
+        fileSelectionRevision += 1;
+
+        filesProcessing.value = false;
+        filesProcessedCount.value = 0;
+        filesProcessingTotal.value = 0;
 
         selectedFiles.value = [];
         localError.value = '';
@@ -732,12 +824,14 @@ const suggestedTitle = computed(() => {
 });
 
 watch(suggestedTitle, (next, previous) => {
-    if (prepared.value) return;
+    if (
+        prepared.value
+        || context.documentId
+        || context.placement !== 'typed'
+    ) {
+        return;
+    }
 
-    /*
-     * Автоматически обновляем только предложенное название.
-     * Введённое пользователем не перезаписываем.
-     */
     if (!title.value.trim() || title.value === previous) {
         title.value = next;
     }
@@ -1228,5 +1322,10 @@ input:focus-visible {
     .upload-dock-close {
         flex-basis: 44px;
     }
+}
+
+/* Загрузчик всегда выше просмотрщика и галереи. */
+.upload-overlay {
+    z-index: 12200;
 }
 </style>
